@@ -25,7 +25,7 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     //size of our window
     size: winit::dpi::PhysicalSize<u32>,
-    //describes the actions our gpu will perform when acting on a set of data (like a shader program?)
+    //describes the actions our gpu will perform when acting on a set of data (like a set of verticies)
     render_pipeline: wgpu::RenderPipeline,
 }
 
@@ -98,7 +98,7 @@ impl State {
         //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
         let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
 
-        //
+        //black box setup for rendering pipeline
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
@@ -106,65 +106,66 @@ impl State {
                 push_constant_ranges: &[],
             });
 
-        //
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                //specifies which shader function should be our entrypoint
-                entry_point: "vs_main",
-                //the types of vertices we want to pass to the vertex shader
-                buffers: &[],
-            },
-            //technically optional, so has to be wrapped in a Some enum
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                //for now, only need one for surface
-                targets: &[Some(wgpu::ColorTargetState {
-                    // 4.
-                    format: config.format,
-                    //for now, blending should just replace old pixel data with new pixel data
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    //for now, we write to all colours (rgba)
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            //how to interpret converting vertices to triangles
-            primitive: wgpu::PrimitiveState {
-                //every 3 vertices corrisponds to one triange - no overlapping triangles or lines ect
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                //doesn't apply
-                strip_index_format: None,
-                //front_face + cull_face - tells wgpu how to decide whether a triangle is facing forwards or not
-                //dictates a right-handed coordinates system (which we will use for now)
-                front_face: wgpu::FrontFace::Ccw,
-                //the back of a trianges face will not be included in the render
-                cull_mode: Some(wgpu::Face::Back),
-                //setting this to anything other than fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: wgpu::PolygonMode::Fill,
-                //requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                //requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            //we aren't using a depth or stensil buffer yet so this doesn't apply
-            depth_stencil: None,
-            //[TODO] learn what multisampling is
-            multisample: wgpu::MultisampleState {
-                //determines how many samples should be active
-                count: 1,
-                //specifies which samples should be active - in this case all of them ( represented by !0 )
-                mask: !0,
-                //for anti-aliasing - doesn't apply for now
-                alpha_to_coverage_enabled: false,
-            },
-            //how many array layers render attachments can have - we aren't rendering to array layers, so for now this is 0
-            multiview: None,
-        });
+        //describes the actions our gpu will perform when acting on a set of data
+        let render_pipeline: wgpu::RenderPipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    //specifies which shader function should be our entrypoint
+                    entry_point: "vs_main",
+                    //the types of vertices we want to pass to the vertex shader
+                    buffers: &[],
+                },
+                //technically optional, so has to be wrapped in a Some enum
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    //for now, only need one for surface
+                    targets: &[Some(wgpu::ColorTargetState {
+                        // 4.
+                        format: config.format,
+                        //for now, blending should just replace old pixel data with new pixel data
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        //for now, we write to all colours (rgba)
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                //how to interpret converting vertices to triangles
+                primitive: wgpu::PrimitiveState {
+                    //every 3 vertices corrisponds to one triange - no overlapping triangles or lines ect
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    //doesn't apply
+                    strip_index_format: None,
+                    //front_face + cull_face - tells wgpu how to decide whether a triangle is facing forwards or not
+                    //dictates a right-handed coordinates system (which we will use for now)
+                    front_face: wgpu::FrontFace::Ccw,
+                    //the back of a trianges face will not be included in the render
+                    cull_mode: Some(wgpu::Face::Back),
+                    //setting this to anything other than fill requires Features::NON_FILL_POLYGON_MODE
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    //requires Features::DEPTH_CLIP_CONTROL
+                    unclipped_depth: false,
+                    //requires Features::CONSERVATIVE_RASTERIZATION
+                    conservative: false,
+                },
+                //we aren't using a depth or stensil buffer yet so this doesn't apply
+                depth_stencil: None,
+                //[TODO] learn what multisampling is and add comments for it
+                multisample: wgpu::MultisampleState {
+                    //determines how many samples should be active
+                    count: 1,
+                    //specifies which samples should be active - in this case all of them ( represented by !0 )
+                    mask: !0,
+                    //for anti-aliasing - doesn't apply for now
+                    alpha_to_coverage_enabled: false,
+                },
+                //how many array layers render attachments can have - we aren't rendering to array layers, so for now this is 0
+                multiview: None,
+            });
 
-        //return all our created types
+        //return all of our created data in a State struct
         Self {
             surface,
             device,
@@ -281,10 +282,15 @@ pub async fn run() {
 
     //a window that can be manipulated to draw on the screen - in init it gets added to the event loop by the window builder
     let window: Window = WindowBuilder::new().build(&event_loop).unwrap();
+    //setup QOL config for the window
+    window.set_title("un-known-engine");
+    //doens't seem to work?
+    // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
 
     //[TODO] add description
     let mut state: State = State::new(&window).await;
 
+    //code specific to wasm as it requires extra setup to get working
     #[cfg(target_arch = "wasm32")]
     {
         //winit prevents sizing with CSS, so we have to set the size manually when on web
