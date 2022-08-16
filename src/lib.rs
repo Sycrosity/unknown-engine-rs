@@ -2,7 +2,6 @@
 #![allow(dead_code)]
 
 use winit::{
-    dpi::PhysicalPosition,
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -24,10 +23,6 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     //size of our window
     size: winit::dpi::PhysicalSize<u32>,
-    //clear ("background") colour
-    clear_color: wgpu::Color,
-    //position of the cursor
-    cursor_pos: PhysicalPosition<f64>,
 }
 
 impl State {
@@ -102,15 +97,6 @@ impl State {
             queue,
             config,
             size,
-            clear_color: {
-                wgpu::Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 1.0,
-                }
-            },
-            cursor_pos: { PhysicalPosition { x: 0.0, y: 0.0 } },
         }
     }
 
@@ -128,26 +114,7 @@ impl State {
     fn input(&mut self, event: &WindowEvent) -> bool {
         //for now, we don't have any events to capture so we leave this false
 
-        match event {
-            WindowEvent::CursorMoved { position, .. } => {
-                
-                self.clear_color = wgpu::Color {
-
-                    r: self.cursor_pos.x / self.size.width as f64,
-                    g: 0.0,
-                    b: self.cursor_pos.y / self.size.height as f64,
-                    a: 1.0
-
-
-                };
-
-                self.cursor_pos = *position;
-
-                true
-            }
-            //anything that we aren't checking for should be counted as false
-            _ => false,
-        }
+        false
     }
 
     fn update(&mut self) {
@@ -187,7 +154,12 @@ impl State {
                         //tells wgpu what to do with the colours on the screen
                         ops: wgpu::Operations {
                             //tells wgpu how to handle colours stored from the previous frame (currently just clearing the screen with a blueish colour) - this is compairable to a default background?
-                            load: wgpu::LoadOp::Clear(self.clear_color),
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1,
+                                g: 0.2,
+                                b: 0.3,
+                                a: 1.0,
+                            }),
                             //whether we should store our rendered results to the Texture from the TextureView
                             store: true,
                         },
