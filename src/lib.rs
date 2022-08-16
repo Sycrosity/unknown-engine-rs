@@ -1,3 +1,6 @@
+//for now, before everything is implimented, we will allow unused/dead code to exist without warnings
+#![allow(dead_code)]
+
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -8,14 +11,177 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+//[TODO] add description
+struct State {
+    //the part of the window that we actually draw to
+    surface: wgpu::Surface,
+    //connection to the graphics/compute device
+    device: wgpu::Device,
+    //the command queue for the device
+    queue: wgpu::Queue,
+    //defines how our surface will create the underlying SurfaceTextures
+    config: wgpu::SurfaceConfiguration,
+    //size of our window
+    size: winit::dpi::PhysicalSize<u32>,
+}
+
+impl State {
+    // creating some of the wgpu types requires async code
+    async fn new(window: &Window) -> Self {
+        //find the safe size of the current window
+        let size: winit::dpi::PhysicalSize<u32> = window.inner_size();
+
+        //instance is a handle to a GPU
+        //Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
+        let instance: wgpu::Instance = wgpu::Instance::new(wgpu::Backends::all());
+
+        //the part of the window that we actually draw to
+        //has to be unsafe as it interfaces with the gpu (which is not neccesarily safe)
+        let surface: wgpu::Surface = unsafe { instance.create_surface(window) };
+
+        //the handler to our actual gpu/other graphics medium
+        let adapter: wgpu::Adapter = instance
+            //should work for most devices,
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                //can be LowPower or HighPower - LowPower will try and use an adapter that favours battery life, HighPower will target a more power consuming but higher performance gpu
+                //[TODO] allow the user to choose a performance mode
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                //will force wgpu to use an adapter that works on all hardware, rendering with software on the cpu instead of using dedicated graphics processing renderers
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+
+        // device: opens a connection to the graphics/compute device
+        // queue: handles the command queue for the device
+        let (device, queue): (wgpu::Device, wgpu::Queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    //here we can choose extra features we want from wgpu (currently none) - not all gpus can support these extra features, so we would have to limit the allowed gpus
+                    features: wgpu::Features::empty(),
+                    //WebGL doesn't support all of wgpu's features, so if we're building for the web we'll have to disable some of them
+                    limits: if cfg!(target_arch = "wasm32") {
+                        wgpu::Limits::downlevel_webgl2_defaults()
+                    } else {
+                        wgpu::Limits::default()
+                    },
+                    label: None,
+                },
+                None, //trace path
+            )
+            .await
+            .unwrap();
+
+        //defines how our surface will create the underlying SurfaceTextures
+        let config: wgpu::SurfaceConfiguration = wgpu::SurfaceConfiguration {
+            //specifies that the textures will be used to draw on the screen
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            //defines how the SurfaceTextures will be stored on our gpu - we will choose the best format based on what display is being used
+            format: surface.get_supported_formats(&adapter)[0],
+            //typically width and height are the size of the window
+            //[WARNING] if either width or height is 0, the program will crash
+            //[TODO] allow the user to choose a screen resolution
+            width: size.width,
+            height: size.height,
+            //essentially Vsync, and will cap the display rate to the display's frame rate - there are other options to choose from https://docs.rs/wgpu/latest/wgpu/enum.PresentMode.html
+            //[TODO] allow the user to choose what mode they want (probably between AutoNoVsync and AutoVsync)
+            present_mode: wgpu::PresentMode::Fifo,
+        };
+        surface.configure(&device, &config);
+
+        //return all our created types
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            size,
+        }
+    }
+
+    //resizing the window requires reconfiguring the surface
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            self.size = new_size;
+            self.config.width = new_size.width;
+            self.config.height = new_size.height;
+            self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    #[allow(unused)]
+    fn input(&mut self, event: &WindowEvent) -> bool {
+        //for now, we don't have any events to capture so we leave this false
+        false
+    }
+
+    fn update(&mut self) {
+
+        //nothing to update for now, so this remains empty
+    }
+
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        //wait for the surface to produce a new texture that we will render to
+        let output: wgpu::SurfaceTexture = self.surface.get_current_texture()?;
+
+        //creates a TextureView with default settings to control how the render code interacts with the textures
+        let view: wgpu::TextureView = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        //creates a command buffer (which most modern gpu's expect to recieve) that we can then send to the gpu
+        let mut encoder: wgpu::CommandEncoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
+
+        //this block is needed to tell rust to drop all references and variables within it so we can finish() it (as encoder is  borrowed mutably)
+        {
+            //contains all the methods to actually draw
+            let _render_pass: wgpu::RenderPass =
+                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    //can be anything
+                    label: Some("Render Pass"),
+                    //black box config for setting up colours properly
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        //tells wgpu what texture to save the colours to
+                        view: &view,
+                        //only used if multi-sampling is enabled (its not)
+                        resolve_target: None,
+                        //tells wgpu what to do with the colours on the screen
+                        ops: wgpu::Operations {
+                            //tells wgpu how to handle colours stored from the previous frame (currently just clearing the screen with a blueish colour) - this is compairable to a default background?
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.1,
+                                g: 0.2,
+                                b: 0.3,
+                                a: 1.0,
+                            }),
+                            //whether we should store our rendered results to the Texture from the TextureView
+                            store: true,
+                        },
+                    })],
+                    //will be used later - for now is just None.
+                    depth_stencil_attachment: None,
+                });
+        }
+
+        //tells wgpu to finish the command buffer and submit it to the render queue
+        self.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        //if all of this completes, return an Ok enum
+        Ok(())
+    }
+}
+
 //tells wasm to run the run() function when wasm is initialised
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-
-//for when using multithreading
-// pub async fn run() {
-
 //run the rasterizer
-pub fn run() {
+//needs to be async as State::new() is now async aswell
+pub async fn run() {
     //checks if there is platform specific code being ran
     cfg_if::cfg_if! {
         //if its on wasm, use the web logger instead of normal env_logger
@@ -30,8 +196,12 @@ pub fn run() {
 
     //a way to retrive events sent by the system, and windows registed into the event loop
     let event_loop: EventLoop<()> = EventLoop::new();
+
     //a window that can be manipulated to draw on the screen - in init it gets added to the event loop by the window builder
     let window: Window = WindowBuilder::new().build(&event_loop).unwrap();
+
+    //[TODO] add description
+    let mut state: State = State::new(&window).await;
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -55,31 +225,64 @@ pub fn run() {
             .expect("Couldn't append canvas to document body.");
     }
 
-    //starts the event loop
-    event_loop.run(
-        move |event: Event<()>, _, control_flow: &mut ControlFlow| match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == window.id() => match event {
-                //system requested window closing
-                WindowEvent::CloseRequested
-                //any keyboard input
-                | WindowEvent::KeyboardInput {
-                    //if escape is pressed, the window will close.
-                    input:
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        },
-                    ..
-                } => *control_flow = ControlFlow::Exit,
-                _ => {}
-            },
-            _ => {}
-        },
-    );
+    //starts the event loop to handle device, program and user events
+    event_loop.run(move |event, _, control_flow| match event {
+        //if something changes related to the window
+        Event::WindowEvent {
+            ref event,
+            window_id,
+        } if window_id == window.id() => {
+            if !state.input(event) {
+                //see what we will do with each different type of window related event
+                match event {
+                    //if the system has requested the window to close, or there is a keyboard input
+                    WindowEvent::CloseRequested
+                    | WindowEvent::KeyboardInput {
+                        //if escape is pressed, the window will close
+                        input:
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            },
+                        ..
+                    } => *control_flow = ControlFlow::Exit,
+                    //if the window has been resized, resize the surface
+                    WindowEvent::Resized(physical_size) => {
+                        state.resize(*physical_size);
+                    }
+                    //if the scale factor has been changed, resize the surface
+                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        state.resize(**new_inner_size);
+                    }
+                    //everything else does nothing for now
+                    _ => {}
+                }
+            }
+        }
+        //if a redraw of the screen is requested
+        Event::RedrawRequested(window_id) if window_id == window.id() => {
+            //update internal state
+            state.update();
+            //render these changes to the screen
+            match state.render() {
+                Ok(_) => {}
+                //reconfigure the surface if lost (if our swap chain (kinda the frame buffer) has been lost)
+                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                //the system is out of memory, so we should probably quit the program
+                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                //all other errors (Outdated, Timeout) should be resolved by the next frame and should just be printed to the error log
+                Err(e) => eprintln!("{:?}", e),
+            }
+        }
+        //when the redraw is about to begin (we have no more events to proccess on this frame)
+        Event::MainEventsCleared => {
+            //redrawRequested will only trigger once, unless we manually request it
+            window.request_redraw();
+        }
+        //all other events do nothing for now
+        _ => {}
+    });
 }
 
 //[TODO] create real tests for the program

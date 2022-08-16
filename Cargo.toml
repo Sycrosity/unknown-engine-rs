@@ -15,6 +15,9 @@ env_logger = "0.9"
 log = "0.4"
 # the library we are using to render items to the screen
 wgpu = "0.13"
+# a more lightweight option to allow main() to await the future than tokio or async-std
+pollster = "0.2"
+
 
 # dependencies specific to wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -25,6 +28,7 @@ console_log = "0.2"
 wgpu = { version = "0.13", features = ["webgl"]}
 # for generating the boilerplate code telling a browser how to use the renderer
 wasm-bindgen = "0.2"
+# futures have to be run with the browser's executor, this adds support for that
 wasm-bindgen-futures = "0.4"
 # bindings for web (javascript) features found in a normal web application
 web-sys = { version = "0.3", features = [
