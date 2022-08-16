@@ -1,6 +1,8 @@
 //for now, before everything is implimented, we will allow unused/dead code to exist without warnings
 #![allow(dead_code)]
 
+use wgpu::include_wgsl;
+
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -23,6 +25,8 @@ struct State {
     config: wgpu::SurfaceConfiguration,
     //size of our window
     size: winit::dpi::PhysicalSize<u32>,
+    //describes the actions our gpu will perform when acting on a set of data (like a shader program?)
+    render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -90,6 +94,76 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        //creates a shader from our shader file (in this case, shader.wgsl)
+        //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
+        let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
+
+        //
+        let render_pipeline_layout: wgpu::PipelineLayout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
+
+        //
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                //specifies which shader function should be our entrypoint
+                entry_point: "vs_main",
+                //the types of vertices we want to pass to the vertex shader
+                buffers: &[],
+            },
+            //technically optional, so has to be wrapped in a Some enum
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                //for now, only need one for surface
+                targets: &[Some(wgpu::ColorTargetState {
+                    // 4.
+                    format: config.format,
+                    //for now, blending should just replace old pixel data with new pixel data
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    //for now, we write to all colours (rgba)
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            //how to interpret converting vertices to triangles
+            primitive: wgpu::PrimitiveState {
+                //every 3 vertices corrisponds to one triange - no overlapping triangles or lines ect
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                //doesn't apply
+                strip_index_format: None,
+                //front_face + cull_face - tells wgpu how to decide whether a triangle is facing forwards or not
+                //dictates a right-handed coordinates system (which we will use for now)
+                front_face: wgpu::FrontFace::Ccw,
+                //the back of a trianges face will not be included in the render
+                cull_mode: Some(wgpu::Face::Back),
+                //setting this to anything other than fill requires Features::NON_FILL_POLYGON_MODE
+                polygon_mode: wgpu::PolygonMode::Fill,
+                //requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
+                //requires Features::CONSERVATIVE_RASTERIZATION
+                conservative: false,
+            },
+            //we aren't using a depth or stensil buffer yet so this doesn't apply
+            depth_stencil: None,
+            //[TODO] learn what multisampling is
+            multisample: wgpu::MultisampleState {
+                //determines how many samples should be active
+                count: 1,
+                //specifies which samples should be active - in this case all of them ( represented by !0 )
+                mask: !0,
+                //for anti-aliasing - doesn't apply for now
+                alpha_to_coverage_enabled: false,
+            },
+            //how many array layers render attachments can have - we aren't rendering to array layers, so for now this is 0
+            multiview: None,
+        });
+
         //return all our created types
         Self {
             surface,
@@ -97,6 +171,7 @@ impl State {
             queue,
             config,
             size,
+            render_pipeline,
         }
     }
 
@@ -140,8 +215,8 @@ impl State {
 
         //this block is needed to tell rust to drop all references and variables within it so we can finish() it (as encoder is  borrowed mutably)
         {
-            //contains all the methods to actually draw
-            let _render_pass: wgpu::RenderPass =
+            //contains all the methods to actually draw to the window
+            let mut render_pass: wgpu::RenderPass =
                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     //can be anything
                     label: Some("Render Pass"),
@@ -167,6 +242,12 @@ impl State {
                     //will be used later - for now is just None.
                     depth_stencil_attachment: None,
                 });
+
+            //set the rendering pipeline to the only one we have so far
+            render_pass.set_pipeline(&self.render_pipeline);
+
+            //tells wgpu to draw something with 3 vertices and one instance (which should be a triangle!)
+            render_pass.draw(0..3, 0..1); // 3.
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
