@@ -3,40 +3,40 @@ name = "un-known-engine"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+#See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# adds a macro making platform specific dependencies easier to manage
+#adds a macro making platform specific dependencies easier to manage
 cfg-if = "1"
-# for creating windows
+#for creating windows
 winit = "0.27"
-# for logging custom errors (from wgpu)
+#for logging custom errors (from wgpu)
 env_logger = "0.9"
 log = "0.4"
-# the library we are using to render items to the screen
+#the library we are using to render items to the screen
 wgpu = "0.13"
-# a more lightweight option to allow main() to await the future than tokio or async-std
+#a more lightweight option to allow main() to await the future than tokio or async-std
 pollster = "0.2"
+bytemuck = { version = "1.12", features = [ "derive" ] }
 
-
-# dependencies specific to wasm
+#dependencies specific to wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"
 #implements logging for wasm on the web
 console_log = "0.2"
-# specific wgpu version for wasm/webgl
+#specific wgpu version for wasm/webgl
 wgpu = { version = "0.13", features = ["webgl"]}
-# for generating the boilerplate code telling a browser how to use the renderer
+#for generating the boilerplate code telling a browser how to use the renderer
 wasm-bindgen = "0.2"
-# futures have to be run with the browser's executor, this adds support for that
+#futures have to be run with the browser's executor, this adds support for that
 wasm-bindgen-futures = "0.4"
-# bindings for web (javascript) features found in a normal web application
+#bindings for web (javascript) features found in a normal web application
 web-sys = { version = "0.3", features = [
     "Document",
     "Window",
     "Element",
 ]}
 
-# build for both rust and C/C++ - this is needed to be able to run it on wasm, for web support
+#build for both rust and C/C++ - this is needed to be able to run it on wasm, for web support
 [lib]
 crate-type = ["cdylib", "rlib"]
