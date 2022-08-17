@@ -351,6 +351,16 @@ pub async fn run() {
     //a way to retrive events sent by the system, and windows registed into the event loop
     let event_loop: EventLoop<()> = EventLoop::new();
 
+    //[TODO?] replace with more permanent solution that doesn't require unsafe?
+    //work-around for https://github.com/rust-windowing/winit/issues/2051 - tldr; macos windows don't generate as they should with winit, so this allows them to work instantly
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use cocoa::appkit::NSApplication as _;
+        cocoa::appkit::NSApp().setActivationPolicy_(
+            cocoa::appkit::NSApplicationActivationPolicy::NSApplicationActivationPolicyRegular,
+        );
+    }
+
     //a window that can be manipulated to draw on the screen - in init it gets added to the event loop by the window builder
     let window: Window = WindowBuilder::new().build(&event_loop).unwrap();
     //setup QOL config for the window

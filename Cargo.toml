@@ -37,6 +37,10 @@ web-sys = { version = "0.3", features = [
     "Element",
 ]}
 
+#fix macos window weirdness - not a good fix but it should work
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "0.24"
+
 #build for both rust and C/C++ - this is needed to be able to run it on wasm, for web support
 [lib]
 crate-type = ["cdylib", "rlib"]
