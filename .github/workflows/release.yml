@@ -6,7 +6,7 @@ on:
 
 jobs:
   release:
-    name: Build and Release
+    name: Build and Release 
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -14,6 +14,9 @@ jobs:
           - os: ubuntu-latest
             artifact_name: un-known-engine
             asset_name: un-known-engine-linux-x86_64
+          - os: windows-latest
+            artifact_name: un-known-engine.exe
+            asset_name: un-known-engine-windows-x86_64
           - os: macos-latest
             artifact_name: un-known-engine
             asset_name: un-known-engine-macos-x86_64
@@ -23,7 +26,7 @@ jobs:
       - name: Build project
         run: cargo build --release --locked
       - name: Upload binary to release
-        uses: svenstaro/upload-release-action@v2-release
+        uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/${{ matrix.artifact_name }}
