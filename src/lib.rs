@@ -9,22 +9,28 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+//wasm specific dependencies
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+//needs Pod and Zeroable to be able to cast it to a &[u8]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-//stores relevant data for a singular vertices
+//stores relevant data for a singular vertex
 struct Vertex {
     position: [f32; 3],
     color: [f32; 3],
 }
 
 impl Vertex {
+    //the default description of what a vertex is - how it stores position, colour, ect
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             //defines the width of a vertex - here most likely 24 bytes
             array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             //how often to move to the next vertex - can be wgpu::VertexStepMode::Instance if we want to only change vertices when we start drawing an instance
             step_mode: wgpu::VertexStepMode::Vertex,
-            //describe the individual parts of a vertex - generally the same structure as the shader
+            //describe the individual parts of a vertex - generally the same structure as the shader (could use the vertex_attr_array![] macro but it requires some jankyness so will keep with this for now
             attributes: &[
                 //position
                 wgpu::VertexAttribute {
