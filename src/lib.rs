@@ -370,7 +370,7 @@ pub async fn run() {
     //a window that can be manipulated to draw on the screen - in init it gets added to the event loop by the window builder
     let window: Window = WindowBuilder::new().build(&event_loop).unwrap();
     //setup QOL config for the window
-    window.set_title("un-known-engine");
+    window.set_title("unknown-engine");
     //doens't seem to work?
     // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
 
