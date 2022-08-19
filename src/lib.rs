@@ -79,7 +79,11 @@ const VERTICES: &[Vertex] = &[
 ];
 
 //the order of the vertices - removes the need to repeat vertices and waste memory
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+const INDICES: &[u16] = &[
+    0, 1, 4, //
+    1, 2, 4, //
+    2, 3, 4, //
+];
 
 //[TODO] add description
 struct State {
