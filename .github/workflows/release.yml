@@ -34,10 +34,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      - name: Install minimal nightly
+      - name: Install stable linux musl
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-x86_64-linux-musl
+          toolchain: stable-x86_64-linux-musl --force-non-host
           override: true
           # target: "x86_64-linux-musl"
           default: true
