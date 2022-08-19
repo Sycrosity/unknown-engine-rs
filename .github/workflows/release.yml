@@ -34,10 +34,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Install minimal nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: "x86_64-linux-musl"
+          default: true
       - name: Build project
         run: |
-          rustup default stable-x86_64-unknown-linux-musl
-          PATH="$HOME/.cargo/bin:$PATH"
           cargo build --release --locked
         #--target x86_64-unknown-linux-gnu
       - name: Optimize and package binary
