@@ -16,13 +16,18 @@ on:
 
 jobs:
   linux-musl-x86_64:
-    name: Build and Release 
+    name: Build and Release linux-musl
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Build project
-        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target x86_64-unknown-linux-musl
+          use-cross: true
+  #      run: cargo build --release --locked --target x86_64-unknown-linux-musl
       - name: Optimize and package binary
         run: |
           cd target/x86_64-unknown-linux-musl/release
@@ -34,11 +39,11 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/x86_64-unknown-linux-musl/release/unknown-engine.tar.gz
-          asset_name: unknown-engine-${{ github.event.release.tag-name }}-linux-musl-x86_64.tar.gz
+          asset_name: unknown-engine-${{ github.event.client_version.new_version }}-linux-musl-x86_64.tar.gz
           tag: ${{ github.event.client_payload.new_version }}
 
   linux-x86_64:
-    name: Build and Release 
+    name: Build and Release linux
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -56,11 +61,11 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/unknown-engine.tar.gz
-          asset_name: unknown-engine-${{ github.event.release.tag-name }}-linux-x86_64.tar.gz
+          asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-linux-x86_64.tar.gz
           tag: ${{ github.event.client_payload.new_version }}
 
   macosx-x86_64:
-    name: Build and Release 
+    name: Build and Release macosx
     runs-on: macos-latest
     steps:
       - name: Checkout code
@@ -80,17 +85,17 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/unknown-engine.dmg
-          asset_name: unknown-engine-${{ github.event.release.tag-name }}-macosx-x86_64.dmg
+          asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-macosx-x86_64.dmg
           tag: ${{ github.event.client_payload.new_version }}
 
   windows-x86_64:
-    name: Build and Release 
-    runs-on: macos-latest
+    name: Build and Release windows
+    runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Build project
-        run: cargo build --release --locked --target x86_64-pc-windows-gnu
+        run: cargo build --release --locked #--target x86_64-pc-windows-gnn
       - name: Optimize and package binary
         run: |
           cd target/release
@@ -101,5 +106,5 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: target/release/unknown-engine.exe.zip
-          asset_name: unknown-engine-${{ github.event.release.tag-name }}-windows-x86_64.exe.zip
+          asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-windows-x86_64.exe.zip
           tag: ${{ github.event.client_payload.new_version }}
