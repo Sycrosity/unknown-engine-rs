@@ -28,36 +28,36 @@ jobs:
           asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-linux-x86_64.tar.gz
           tag: ${{ github.event.client_payload.new_version }}
 
-  linux-musl-x86_64:
-    name: Build and Release linux musl
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Install stable linux musl
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable-x86_64-linux-musl --force-non-host
-          override: true
-          # target: "x86_64-linux-musl"
-          default: true
-      - name: Build project
-        run: |
-          cargo build --release --locked
-        #--target x86_64-unknown-linux-gnu
-      - name: Optimize and package binary
-        run: |
-          cd target/release
-          strip unknown-engine
-          chmod +x unknown-engine
-          tar -c unknown-engine | gzip > unknown-engine.tar.gz
-      - name: Upload binary to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/release/x86_64-unknown-linux-musl/release/unknown-engine.tar.gz
-          asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-linux-musl-x86_64.tar.gz
-          tag: ${{ github.event.client_payload.new_version }}
+  # linux-musl-x86_64:
+  #   name: Build and Release linux musl
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v2
+  #     - name: Install stable linux musl
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable-x86_64-linux-musl --force-non-host
+  #         override: true
+  #         # target: "x86_64-linux-musl"
+  #         default: true
+  #     - name: Build project
+  #       run: |
+  #         cargo build --release --locked
+  #       #--target x86_64-unknown-linux-gnu
+  #     - name: Optimize and package binary
+  #       run: |
+  #         cd target/release
+  #         strip unknown-engine
+  #         chmod +x unknown-engine
+  #         tar -c unknown-engine | gzip > unknown-engine.tar.gz
+  #     - name: Upload binary to release
+  #       uses: svenstaro/upload-release-action@v2
+  #       with:
+  #         repo_token: ${{ secrets.GITHUB_TOKEN }}
+  #         file: target/release/x86_64-unknown-linux-musl/release/unknown-engine.tar.gz
+  #         asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-linux-musl-x86_64.tar.gz
+  #         tag: ${{ github.event.client_payload.new_version }}
 
   macosx-x86_64:
     name: Build and Release macosx 
