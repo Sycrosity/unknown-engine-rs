@@ -1,34 +1,105 @@
 name: Build and upload binaries to release
 
+
+          # - os: ubuntu-latest
+          #   target: x86_64-unknown-linux-gnu
+          # - os: ubuntu-latest
+          #   target: x86_64-unknown-linux-musl
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-gnu
+          # - os: macos-latest
+          #   target: x86_64-apple-darwin
+
 on:
   repository_dispatch:
     types: [tag-created]
 
 jobs:
-  release:
+  linux-musl-x86_64:
     name: Build and Release 
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            artifact_name: un-known-engine
-            asset_name: un-known-engine-linux-x86_64
-          - os: windows-latest
-            artifact_name: un-known-engine.exe
-            asset_name: un-known-engine-windows-x86_64
-          - os: macos-latest
-            artifact_name: un-known-engine
-            asset_name: un-known-engine-macos-x86_64
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Build project
-        run: cargo build --release --locked
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
+      - name: Optimize and package binary
+        run: |
+          cd target/x86_64-unknown-linux-musl/release
+          strip unknown-engine
+          chmod +x unknown-engine
+          tar -c unknown-engine | gzip > unknown-engine.tar.gz
       - name: Upload binary to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/release/${{ matrix.artifact_name }}
-          asset_name: ${{ matrix.asset_name }}
+          file: target/release/x86_64-unknown-linux-musl/release/unknown-engine.tar.gz
+          asset_name: unknown-engine-${{ github.event.release.tag-name }}-linux-musl-x86_64.tar.gz
+          tag: ${{ github.event.client_payload.new_version }}
+
+  linux-x86_64:
+    name: Build and Release 
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Build project
+        run: cargo build --release --locked #--target x86_64-unknown-linux-gnu
+      - name: Optimize and package binary
+        run: |
+          cd target/release
+          strip unknown-engine
+          chmod +x unknown-engine
+          tar -c unknown-engine | gzip > unknown-engine.tar.gz
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/unknown-engine.tar.gz
+          asset_name: unknown-engine-${{ github.event.release.tag-name }}-linux-x86_64.tar.gz
+          tag: ${{ github.event.client_payload.new_version }}
+
+  macosx-x86_64:
+    name: Build and Release 
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Build project
+        run: cargo build --release --locked #--target x86_64-apple-darwin
+      - name: Optimize and package binary
+        run: |
+          cd target/release
+          strip unknown-engine
+          chmod +x unknown-engine
+          mkdir dmg
+          mv unknown-engine dmg/
+          hdiutil create -fs HFS+ -srcfolder dmg -volname unknown-engine unknown-engine.dmg
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/unknown-engine.dmg
+          asset_name: unknown-engine-${{ github.event.release.tag-name }}-macosx-x86_64.dmg
+          tag: ${{ github.event.client_payload.new_version }}
+
+  windows-x86_64:
+    name: Build and Release 
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Build project
+        run: cargo build --release --locked --target x86_64-pc-windows-gnu
+      - name: Optimize and package binary
+        run: |
+          cd target/release
+          zip unknown-engine.exe.zip unknown-engine.exe
+
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/unknown-engine.exe.zip
+          asset_name: unknown-engine-${{ github.event.release.tag-name }}-windows-x86_64.exe.zip
           tag: ${{ github.event.client_payload.new_version }}
