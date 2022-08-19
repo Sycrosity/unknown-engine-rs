@@ -54,25 +54,32 @@ impl Vertex {
     }
 }
 
-//Counter-clockwise order because right handed coordinates system
+//the verticies of whatever shape we are trying to make (here a pentagon)
 const VERTICES: &[Vertex] = &[
     Vertex {
-        position: [0.0, 0.5, 0.0],
-        color: [1.0, 0.0, 0.0],
+        position: [-0.0868241, 0.49240386, 0.0],
+        color: [0.5, 0.0, 0.5],
     },
     Vertex {
-        position: [-0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
+        position: [-0.49513406, 0.06958647, 0.0],
+        color: [0.5, 0.0, 0.5],
     },
     Vertex {
-        position: [0.5, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
+        position: [-0.21918549, -0.44939706, 0.0],
+        color: [0.5, 0.0, 0.5],
+    },
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+        color: [0.5, 0.0, 0.5],
+    },
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+        color: [0.5, 0.0, 0.5],
     },
 ];
 
-//wasm specific dependencies
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
+//the order of the vertices - removes the need to repeat vertices and waste memory
+const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 //[TODO] add description
 struct State {
@@ -88,10 +95,13 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     //describes the actions our gpu will perform when acting on a set of data (like a set of verticies)
     render_pipeline: wgpu::RenderPipeline,
-    //a buffer to store the vertex data we want to draw (so we don't have to expensively recomplie the shader on every update)
+    //buffers are to store all the data we want to draw (so we don't have to expensively recomplie the shader on every update)
+    //to store all the individual vertices in our elements
     vertex_buffer: wgpu::Buffer,
-    //how many vertices are in VERTICES
-    num_vertices: u32,
+    //to store all the indices to elements in VERTICES to create triangles
+    index_buffer: wgpu::Buffer,
+    //how many indices are in the INDICES constant
+    num_indices: u32,
 }
 
 impl State {
@@ -230,14 +240,21 @@ impl State {
                 multiview: None,
             });
 
+        //a buffer to store the vertex data we want to draw (so we don't have to expensively recomplie the shader on every update)
         let vertex_buffer: wgpu::Buffer =
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Vertex Buffer"),
+                //cast to &[u8] as that is how gpu buffers typically expect buffer data
                 contents: bytemuck::cast_slice(VERTICES),
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-        let num_vertices = VERTICES.len() as u32;
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
+        let num_indices = INDICES.len() as u32;
 
         //return all of our created data in a State struct
         Self {
@@ -248,7 +265,8 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
-            num_vertices,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -322,10 +340,12 @@ impl State {
 
             //set the rendering pipeline to the only one we have so far
             render_pass.set_pipeline(&self.render_pipeline);
-            //tells wgpu what slice of the vertex buffer to use - here .. which means all of it
+            //tells wgpu what slice of the vertex buffer to use - here it's .. which means all of it
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            //tells wgpu to draw something with self.num_vertices number of vertices
-            render_pass.draw(0..self.num_vertices, 0..1); // 3.
+            //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            //tells wgpu to draw something using our indices and vertices
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..1); // 3.
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
