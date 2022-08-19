@@ -99,7 +99,7 @@ struct State {
     //to store all the individual vertices in our elements
     vertex_buffer: wgpu::Buffer,
     //to store all the indices to elements in VERTICES to create triangles
-    index_buffer: wgpu::Buffer, 
+    index_buffer: wgpu::Buffer,
     //how many indices are in the INDICES constant
     num_indices: u32,
 }
@@ -249,13 +249,11 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-        let index_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            }
-        );
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        });
         let num_indices = INDICES.len() as u32;
 
         //return all of our created data in a State struct
@@ -267,7 +265,7 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
-            index_buffer, 
+            index_buffer,
             num_indices,
         }
     }
@@ -346,7 +344,7 @@ impl State {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            //tells wgpu to draw something using our indices and vertices 
+            //tells wgpu to draw something using our indices and vertices
             render_pass.draw_indexed(0..self.num_indices, 0, 0..1); // 3.
         }
 
