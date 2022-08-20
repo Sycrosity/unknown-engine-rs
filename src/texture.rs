@@ -6,7 +6,7 @@ pub struct Texture {
     pub texture: wgpu::Texture,
     //describes the texture and associated metadata
     pub view: wgpu::TextureView,
-    //
+    //controls how a texture is sampled - returning a colour based on a provided pixel coordinate (and some config)
     pub sampler: wgpu::Sampler,
 }
 

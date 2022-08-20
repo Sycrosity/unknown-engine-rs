@@ -17,13 +17,18 @@ log = "0.4"
 wgpu = "0.13"
 #a more lightweight option to allow main() to await the future than tokio or async-std
 pollster = "0.2"
+#for casting Vec[f32]'s into Vec[u8]'s
 bytemuck = { version = "1.12", features = [ "derive" ] }
+#for idiomatic error handling
 anyhow = "1.0"
+#for performing linear algebra
 cgmath = "0.18"
 
+#for interpreting and representing images
 [dependencies.image]
 version = "0.24"
 default-features = false
+#we only need to import png's and jpeg's (for now)
 features = ["png", "jpeg"]
 
 #dependencies specific to wasm
