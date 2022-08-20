@@ -59,7 +59,6 @@ impl Vertex {
 
 //the verticies of whatever shape we are trying to make (here a pentagon)
 const VERTICES: &[Vertex] = &[
-    // Changed
     Vertex {
         position: [-0.0868241, 0.49240386, 0.0],
         tex_coords: [0.4131759, 0.00759614],
@@ -334,6 +333,7 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
+
         }
     }
 
