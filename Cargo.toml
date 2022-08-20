@@ -18,6 +18,7 @@ wgpu = "0.13"
 #a more lightweight option to allow main() to await the future than tokio or async-std
 pollster = "0.2"
 bytemuck = { version = "1.12", features = [ "derive" ] }
+anyhow = "1.0"
 
 [dependencies.image]
 version = "0.24"
