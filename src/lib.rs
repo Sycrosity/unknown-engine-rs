@@ -333,7 +333,6 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
-
         }
     }
 
