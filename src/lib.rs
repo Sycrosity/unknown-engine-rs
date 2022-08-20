@@ -81,11 +81,12 @@ const VERTICES: &[Vertex] = &[
     },
 ];
 
+#[rustfmt::skip]
 //the order of the vertices - removes the need to repeat vertices and waste memory
 const INDICES: &[u16] = &[
-    0, 1, 4, //
-    1, 2, 4, //
-    2, 3, 4, //
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
 ];
 
 //the state of the everything related to the program - the window, device, buffers, textures, models, ect
