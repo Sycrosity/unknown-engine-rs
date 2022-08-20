@@ -1,6 +1,8 @@
 //for now, before everything is implimented, we will allow unused/dead code to exist without warnings
 #![allow(dead_code)]
 
+mod texture;
+
 use wgpu::{include_wgsl, util::DeviceExt};
 
 use winit::{
@@ -19,7 +21,8 @@ use wasm_bindgen::prelude::*;
 //stores relevant data for a singular vertex
 struct Vertex {
     position: [f32; 3],
-    color: [f32; 3],
+    //texture coordinates
+    tex_coords: [f32; 2],
 }
 
 impl Vertex {
@@ -47,7 +50,7 @@ impl Vertex {
                     offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
                     //the colour attribute of the shader
                     shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }
@@ -58,30 +61,34 @@ impl Vertex {
 const VERTICES: &[Vertex] = &[
     Vertex {
         position: [-0.0868241, 0.49240386, 0.0],
-        color: [0.5, 0.0, 0.5],
+        tex_coords: [0.4131759, 0.00759614],
     },
     Vertex {
         position: [-0.49513406, 0.06958647, 0.0],
-        color: [0.5, 0.0, 0.5],
+        tex_coords: [0.0048659444, 0.43041354],
     },
     Vertex {
         position: [-0.21918549, -0.44939706, 0.0],
-        color: [0.5, 0.0, 0.5],
+        tex_coords: [0.28081453, 0.949397],
     },
     Vertex {
         position: [0.35966998, -0.3473291, 0.0],
-        color: [0.5, 0.0, 0.5],
+        tex_coords: [0.85967, 0.84732914],
     },
     Vertex {
         position: [0.44147372, 0.2347359, 0.0],
-        color: [0.5, 0.0, 0.5],
+        tex_coords: [0.9414737, 0.2652641],
     },
 ];
 
 //the order of the vertices - removes the need to repeat vertices and waste memory
-const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
+const INDICES: &[u16] = &[
+    0, 1, 4, //
+    1, 2, 4, //
+    2, 3, 4, //
+];
 
-//[TODO] add description
+//the state of the everything related to the program - the window, device, buffers, textures, models, ect
 struct State {
     //the part of the window that we actually draw to
     surface: wgpu::Surface,
@@ -102,6 +109,10 @@ struct State {
     index_buffer: wgpu::Buffer,
     //how many indices are in the INDICES constant
     num_indices: u32,
+    //describes how a set of textures can be accessed by the shader
+    diffuse_bind_group: wgpu::BindGroup,
+    //aa texture generated from texture.rs
+    diffuse_texture: texture::Texture,
 }
 
 impl State {
@@ -169,15 +180,68 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        //collect the bytes from happy-tree.png
+        let diffuse_bytes = include_bytes!("happy-tree.png");
+        //create a texture using our texture.rs file and our image bytes
+        let diffuse_texture: texture::Texture =
+            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
+
+        //[TODO] really very black box
+        //used to create a bind group with the specified config, so that bind groups can be swapped in and out (as long as they share the same BindGroupLayout)
+        let texture_bind_group_layout: wgpu::BindGroupLayout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("texture_bind_group_layout"),
+                //our bind group needs two entries - a sampled texure, and a sampler
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        //visible to only the fragment shader
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        //this should match the filterable field of the corresponding Texture entry above
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        //we only have one so this isn't needed
+                        count: None,
+                    },
+                ],
+            });
+
+        //describes how a set of textures can be accessed by a shader
+        let diffuse_bind_group: wgpu::BindGroup =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("diffuse_bind_group"),
+                layout: &texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    },
+                ],
+            });
+
         //creates a shader from our shader file (in this case, shader.wgsl)
         //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
         let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
 
-        //black box setup for rendering pipeline
+        //setup for our rendering pipeline
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
+                //the list of bind groups being used
+                bind_group_layouts: &[&texture_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -267,6 +331,8 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            diffuse_bind_group,
+            diffuse_texture,
         }
     }
 
@@ -340,6 +406,8 @@ impl State {
 
             //set the rendering pipeline to the only one we have so far
             render_pass.set_pipeline(&self.render_pipeline);
+            //tells wgu how to access textures
+            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
             //tells wgpu what slice of the vertex buffer to use - here it's .. which means all of it
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
