@@ -182,7 +182,7 @@ impl State {
         surface.configure(&device, &config);
 
         //collect the bytes from happy-tree.png
-        let diffuse_bytes = include_bytes!("happy-tree.png");
+        let diffuse_bytes = include_bytes!("assets/happy-tree.png");
         //create a texture using our texture.rs file and our image bytes
         let diffuse_texture: texture::Texture =
             texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
