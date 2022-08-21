@@ -178,12 +178,13 @@ impl CameraController {
         match event {
             //when something is pressed on the keyboard
             WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state,
-                    //save it in the temporary keycode variable
-                    virtual_keycode: Some(keycode),
-                    ..
-                },
+                input:
+                    KeyboardInput {
+                        state,
+                        //save it in the temporary keycode variable
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
                 ..
             } => {
                 let is_pressed: bool = *state == ElementState::Pressed;
@@ -213,7 +214,7 @@ impl CameraController {
         }
     }
 
-    //interpret the 
+    //interpret the
     fn update_camera(&self, camera: &mut Camera) {
         use cgmath::InnerSpace;
         let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
@@ -243,7 +244,6 @@ impl CameraController {
         }
     }
 }
- 
 
 //the state of the everything related to the program - the window, device, buffers, textures, models, ect
 struct State {
@@ -569,7 +569,7 @@ impl State {
             camera_uniform,
             camera_buffer,
             camera_bind_group,
-            camera_controller
+            camera_controller,
         }
     }
 
@@ -589,11 +589,14 @@ impl State {
     }
 
     fn update(&mut self) {
-
         self.camera_controller.update_camera(&mut self.camera);
         self.camera_uniform.update_view_proj(&self.camera);
         //write to the buffer with our updated data
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
+        self.queue.write_buffer(
+            &self.camera_buffer,
+            0,
+            bytemuck::cast_slice(&[self.camera_uniform]),
+        );
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
