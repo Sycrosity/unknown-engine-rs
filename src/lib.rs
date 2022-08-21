@@ -133,6 +133,7 @@ impl Camera {
 #[repr(C)]
 //this is so we can store this in a buffer (aka have it turned into a &[u8])
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+//the camera matrix data for use in the buffer
 struct CameraUniform {
     //we can't use cgmath with bytemuck directly so we'll have to convert the Matrix4 into a 4x4 f32 array
     view_proj: [[f32; 4]; 4],
@@ -271,7 +272,7 @@ struct State {
     diffuse_texture: texture::Texture,
     //a view into our scene that can move around (using rasterization) and give the perception of depth
     camera: Camera,
-    //
+    //the camera matrix data for use in the buffer
     camera_uniform: CameraUniform,
     //to store the matrix data associated with the camera
     camera_buffer: wgpu::Buffer,
@@ -414,9 +415,8 @@ impl State {
             zfar: 100.0,
         };
 
-        //
-        let mut camera_uniform: CameraUniform = CameraUniform::new();
         //convert our camera matrix into a CameraUniform
+        let mut camera_uniform: CameraUniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
 
         //the uniform buffer for our camera - a &[u8] representation of the camera matrix
