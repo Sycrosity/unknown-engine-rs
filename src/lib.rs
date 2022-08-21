@@ -89,6 +89,161 @@ const INDICES: &[u16] = &[
     2, 3, 4,
 ];
 
+//a view into our scene that can move around (using rasterization) and give the perception of depth
+struct Camera {
+    //where our camera is looking at our scene from
+    eye: cgmath::Point3<f32>,
+    //what we are looking at (most likely the origin, [0,0,0])
+    target: cgmath::Point3<f32>,
+    //where up is - used for orientation
+    up: cgmath::Vector3<f32>,
+    //the aspect ration
+    aspect: f32,
+    //field of view
+    fovy: f32,
+    //what counts as too close to render
+    znear: f32,
+    //what counts as too far away to render
+    zfar: f32,
+}
+
+impl Camera {
+    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
+        //a matrix to move the world to where the camera is at
+        let view: cgmath::Matrix4<f32> =
+            cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
+        // a matrix that wraps the scene to give the illusion of depth
+        let proj: cgmath::Matrix4<f32> =
+            cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
+
+        // wgpu's coordinate system is based on DirectX and Metal's, whereas normalised device coordinates (present in OpenGL, cgmath and most game math crates) have x and y coords within the range of +1.0 and -1.0 - so we need a matrix to scale and translate cgmath's scene to wgpu's
+        #[rustfmt::skip]
+        pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 0.5, 0.0,
+            0.0, 0.0, 0.5, 1.0,
+        );
+
+        return OPENGL_TO_WGPU_MATRIX * proj * view;
+    }
+}
+
+//we need this for Rust to store our data correctly for the shaders
+#[repr(C)]
+//this is so we can store this in a buffer (aka have it turned into a &[u8])
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CameraUniform {
+    //we can't use cgmath with bytemuck directly so we'll have to convert the Matrix4 into a 4x4 f32 array
+    view_proj: [[f32; 4]; 4],
+}
+
+impl CameraUniform {
+    fn new() -> Self {
+        use cgmath::SquareMatrix;
+        Self {
+            view_proj: cgmath::Matrix4::identity().into(),
+        }
+    }
+
+    //convert a Camera into a CameraUniform so it can be used in a uniform buffer
+    fn update_view_proj(&mut self, camera: &Camera) {
+        self.view_proj = camera.build_view_projection_matrix().into();
+    }
+}
+
+//how the camera is controlled
+struct CameraController {
+    speed: f32,
+    is_forward_pressed: bool,
+    is_backward_pressed: bool,
+    is_left_pressed: bool,
+    is_right_pressed: bool,
+}
+
+impl CameraController {
+    fn new(speed: f32) -> Self {
+        Self {
+            speed,
+            is_forward_pressed: false,
+            is_backward_pressed: false,
+            is_left_pressed: false,
+            is_right_pressed: false,
+        }
+    }
+
+    //how to handle camera movement
+    fn process_events(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            //when something is pressed on the keyboard
+            WindowEvent::KeyboardInput {
+                input: KeyboardInput {
+                    state,
+                    //save it in the temporary keycode variable
+                    virtual_keycode: Some(keycode),
+                    ..
+                },
+                ..
+            } => {
+                let is_pressed: bool = *state == ElementState::Pressed;
+                match keycode {
+                    //[TODO] make this part of a config file or user options
+                    //keybinds for all directions of camera movement
+                    VirtualKeyCode::W | VirtualKeyCode::Up => {
+                        self.is_forward_pressed = is_pressed;
+                        true
+                    }
+                    VirtualKeyCode::A | VirtualKeyCode::Left => {
+                        self.is_left_pressed = is_pressed;
+                        true
+                    }
+                    VirtualKeyCode::S | VirtualKeyCode::Down => {
+                        self.is_backward_pressed = is_pressed;
+                        true
+                    }
+                    VirtualKeyCode::D | VirtualKeyCode::Right => {
+                        self.is_right_pressed = is_pressed;
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    //interpret the 
+    fn update_camera(&self, camera: &mut Camera) {
+        use cgmath::InnerSpace;
+        let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
+        let forward_norm: cgmath::Vector3<f32> = forward.normalize();
+        let forward_mag: f32 = forward.magnitude();
+
+        //forward_mag > self.speed prevents glitching when camera gets too close to the center of the scene.
+        if self.is_forward_pressed && forward_mag > self.speed {
+            camera.eye += forward_norm * self.speed;
+        }
+        if self.is_backward_pressed {
+            camera.eye -= forward_norm * self.speed;
+        }
+
+        let right: cgmath::Vector3<f32> = forward_norm.cross(camera.up);
+
+        //redo radius calc in case the fowrard/backward is pressed.
+        let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
+        let forward_mag: f32 = forward.magnitude();
+
+        if self.is_right_pressed {
+            //rescale the distance between the target and eye so that it doesn't change - the eye therefore still lies on the circle made by the target and eye.
+            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
+        }
+        if self.is_left_pressed {
+            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
+        }
+    }
+}
+ 
+
 //the state of the everything related to the program - the window, device, buffers, textures, models, ect
 struct State {
     //the part of the window that we actually draw to
@@ -103,7 +258,7 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     //describes the actions our gpu will perform when acting on a set of data (like a set of verticies)
     render_pipeline: wgpu::RenderPipeline,
-    //buffers are to store all the data we want to draw (so we don't have to expensively recomplie the shader on every update)
+    //buffers are used to store all the data we want to draw (so we don't have to expensively recomplie the shader on every update)
     //to store all the individual vertices in our elements
     vertex_buffer: wgpu::Buffer,
     //to store all the indices to elements in VERTICES to create triangles
@@ -114,6 +269,16 @@ struct State {
     diffuse_bind_group: wgpu::BindGroup,
     //aa texture generated from texture.rs
     diffuse_texture: texture::Texture,
+    //a view into our scene that can move around (using rasterization) and give the perception of depth
+    camera: Camera,
+    //
+    camera_uniform: CameraUniform,
+    //to store the matrix data associated with the camera
+    camera_buffer: wgpu::Buffer,
+    //describes how the camera can be accessed by the shader
+    camera_bind_group: wgpu::BindGroup,
+    //how the camera is controlled
+    camera_controller: CameraController,
 }
 
 impl State {
@@ -195,6 +360,7 @@ impl State {
                 //our bind group needs two entries - a sampled texure, and a sampler
                 entries: &[
                     wgpu::BindGroupLayoutEntry {
+                        //texure binding
                         binding: 0,
                         //visible to only the fragment shader
                         visibility: wgpu::ShaderStages::FRAGMENT,
@@ -206,6 +372,7 @@ impl State {
                         count: None,
                     },
                     wgpu::BindGroupLayoutEntry {
+                        //sampler binding
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         //this should match the filterable field of the corresponding Texture entry above
@@ -233,6 +400,68 @@ impl State {
                 ],
             });
 
+        let camera: Camera = Camera {
+            // position the camera one unit up and 2 units back - the +z coordinate is out of the screen (coord ranges are 1.0 to -1.0)
+            eye: (0.0, 1.0, 2.0).into(),
+            //have it look at the origin
+            target: (0.0, 0.0, 0.0).into(),
+            //which way is "up" - here (0.0, 1.0, 0.0)
+            up: cgmath::Vector3::unit_y(),
+            aspect: config.width as f32 / config.height as f32,
+            //a basic, random value - allow user to change in settings
+            fovy: 45.0,
+            znear: 0.1,
+            zfar: 100.0,
+        };
+
+        //
+        let mut camera_uniform: CameraUniform = CameraUniform::new();
+        //convert our camera matrix into a CameraUniform
+        camera_uniform.update_view_proj(&camera);
+
+        //the uniform buffer for our camera - a &[u8] representation of the camera matrix
+        let camera_buffer: wgpu::Buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Camera Buffer"),
+                contents: bytemuck::cast_slice(&[camera_uniform]),
+                //COPY_DST allows us to copy data to the buffer
+                //UNIFORM allows our buffer to be inside a bind_group
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        //config for our camera bind group
+        let camera_bind_group_layout: wgpu::BindGroupLayout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("camera_bind_group_layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    //the camera only needs to be visible to the vertex shader
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        //the size of data won't change, so it doesn't need to be dynamic
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    //None means its not an array (aka just one binding)
+                    count: None,
+                }],
+            });
+
+        //describes how the camera can be accessed by the shader
+        let camera_bind_group: wgpu::BindGroup =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("camera_bind_group"),
+                layout: &camera_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_buffer.as_entire_binding(),
+                }],
+            });
+
+        //how the camera is controlled
+        let camera_controller: CameraController = CameraController::new(0.2);
+
         //creates a shader from our shader file (in this case, shader.wgsl)
         //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
         let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
@@ -242,7 +471,7 @@ impl State {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 //the list of bind groups being used
-                bind_group_layouts: &[&texture_bind_group_layout],
+                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -314,12 +543,14 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let num_indices = INDICES.len() as u32;
+        let index_buffer: wgpu::Buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let num_indices: u32 = INDICES.len() as u32;
 
         //return all of our created data in a State struct
         Self {
@@ -334,6 +565,11 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
+            camera,
+            camera_uniform,
+            camera_buffer,
+            camera_bind_group,
+            camera_controller
         }
     }
 
@@ -347,16 +583,17 @@ impl State {
         }
     }
 
-    #[allow(unused)]
     fn input(&mut self, event: &WindowEvent) -> bool {
-        //for now, we don't have any events to capture so we leave this false
-
-        false
+        //an inputs should return true if something changed, and false if nothing changed
+        self.camera_controller.process_events(event)
     }
 
     fn update(&mut self) {
 
-        //nothing to update for now, so this remains empty
+        self.camera_controller.update_camera(&mut self.camera);
+        self.camera_uniform.update_view_proj(&self.camera);
+        //write to the buffer with our updated data
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera_uniform]));
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -409,6 +646,8 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             //tells wgu how to access textures
             render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
+            //tells wgu how to use apply the camera matrix
+            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             //tells wgpu what slice of the vertex buffer to use - here it's .. which means all of it
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
@@ -488,6 +727,8 @@ pub async fn run() {
             })
             .expect("Couldn't append canvas to document body.");
     }
+
+    // println!("{:?}", state.camera.build_view_projection_matrix());
 
     //starts the event loop to handle device, program and user events
     event_loop.run(move |event, _, control_flow| match event {
