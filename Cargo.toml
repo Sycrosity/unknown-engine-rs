@@ -7,7 +7,7 @@ description = "a hopefully (or hopelessly) simple 3d rasterizing engine build in
 license = "Apache-2.0"
 keywords = ["gamedev", "graphics", "wgpu"]
 homepage = "engine.sycro.dev"
-
+repository = "https://github.com/Sycrosity/unknown-engine-rs"
 
 #See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
