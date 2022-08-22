@@ -11,6 +11,8 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use cgmath::prelude::*;
+
 //wasm specific dependencies
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -89,6 +91,76 @@ const INDICES: &[u16] = &[
     2, 3, 4,
 ];
 
+//allows us to draw the same object multiple times with different properties
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    //really very complicated black box, but is a mathematical structure often used to represent rotation
+    //[TODO] read https://mathworld.wolfram.com/Quaternion.html to try and vaguely understand what this is doing
+    rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    //convert to a wgsl interpretable InstanceRaw
+    fn to_raw(&self) -> InstanceRaw {
+        InstanceRaw {
+            model: (cgmath::Matrix4::from_translation(self.position)
+                * cgmath::Matrix4::from(self.rotation))
+            .into(),
+        }
+    }
+}
+
+//how many instances of our pentagon are we going to display
+const NUM_INSTANCES_PER_ROW: u32 = 10;
+//how far away from each other the pentagons should be
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    NUM_INSTANCES_PER_ROW as f32 * 0.5,
+);
+
+//wgsl doesn't have a representation for quarterons, so we convert the instance into just a matrix
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct InstanceRaw {
+    model: [[f32; 4]; 4],
+}
+
+impl InstanceRaw {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
+            //we need to switch from using a step mode of Vertex to Instance - this means that our shaders will only change to use the next instance when the shader starts processing a new instance
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                //a wgsl mat4 takes up 4 vertex slots as it is technically 4 vec4s - shince we need to define a slot for each vec4, we'll have to reassemble the mat4 in the shader
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    //while our vertex shader only uses locations 0, and 1 now, in later tutorials we'll be using 2, 3, and 4, for vertex - we'll start at slot 5 to not conflict with them later
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 7,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
+                    shader_location: 8,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
 //a view into our scene that can move around (using rasterization) and give the perception of depth
 struct Camera {
     //where our camera is looking at our scene from
@@ -141,7 +213,6 @@ struct CameraUniform {
 
 impl CameraUniform {
     fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
         }
@@ -216,7 +287,6 @@ impl CameraController {
 
     //interpret the
     fn update_camera(&self, camera: &mut Camera) {
-        use cgmath::InnerSpace;
         let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
         let forward_norm: cgmath::Vector3<f32> = forward.normalize();
         let forward_mag: f32 = forward.magnitude();
@@ -228,7 +298,6 @@ impl CameraController {
         if self.is_backward_pressed {
             camera.eye -= forward_norm * self.speed;
         }
-
         let right: cgmath::Vector3<f32> = forward_norm.cross(camera.up);
 
         //redo radius calc in case the fowrard/backward is pressed.
@@ -280,6 +349,10 @@ struct State {
     camera_bind_group: wgpu::BindGroup,
     //how the camera is controlled
     camera_controller: CameraController,
+    //the list of our instances
+    instances: Vec<Instance>,
+    //to store the model and matrix data associated with our instances
+    instance_buffer: wgpu::Buffer,
 }
 
 impl State {
@@ -462,6 +535,43 @@ impl State {
         //how the camera is controlled
         let camera_controller: CameraController = CameraController::new(0.2);
 
+        //define our instances (should be 100 pentagons in a 10x10 grid, each rotated based on an axis)
+        let instances: Vec<Instance> = (0..NUM_INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
+                    let position: cgmath::Vector3<f32> = cgmath::Vector3 {
+                        x: x as f32,
+                        y: 0.0,
+                        z: z as f32,
+                    } - INSTANCE_DISPLACEMENT;
+
+                    let rotation: cgmath::Quaternion<f32> = if position.is_zero() {
+                        //this is needed so an object at (0, 0, 0) won't get scaled to zero as Quaternions can effect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Deg(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+
+                    Instance { position, rotation }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        //the instances created turned into InstanceRaw's so they can be interpreted by the shader
+        let instance_data: Vec<InstanceRaw> =
+            instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
+
+        //to store the model and matrix data associated with our instances
+        let instance_buffer: wgpu::Buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Instance Buffer"),
+                contents: bytemuck::cast_slice(&instance_data),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
+
         //creates a shader from our shader file (in this case, shader.wgsl)
         //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
         let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
@@ -485,7 +595,7 @@ impl State {
                     //specifies which shader function should be our entrypoint
                     entry_point: "vs_main",
                     //the types of vertices we want to pass to the vertex shader
-                    buffers: &[Vertex::desc()],
+                    buffers: &[Vertex::desc(), InstanceRaw::desc()],
                 },
                 //technically optional, so has to be wrapped in a Some enum
                 fragment: Some(wgpu::FragmentState {
@@ -570,6 +680,8 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            instances,
+            instance_buffer,
         }
     }
 
@@ -653,10 +765,12 @@ impl State {
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
             //tells wgpu what slice of the vertex buffer to use - here it's .. which means all of it
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            //
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             //tells wgpu to draw something using our indices and vertices
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..1); // 3.
+            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
@@ -730,8 +844,6 @@ pub async fn run() {
             })
             .expect("Couldn't append canvas to document body.");
     }
-
-    // println!("{:?}", state.camera.build_view_projection_matrix());
 
     //starts the event loop to handle device, program and user events
     event_loop.run(move |event, _, control_flow| match event {
