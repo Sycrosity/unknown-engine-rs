@@ -29,6 +29,8 @@ bytemuck = { version = "1.12", features = [ "derive" ] }
 anyhow = "1.0"
 #for performing linear algebra
 cgmath = "0.18"
+#for drawing text to the screen
+wgpu_glyph = "0.17"
 
 #for interpreting and representing images
 [dependencies.image]
