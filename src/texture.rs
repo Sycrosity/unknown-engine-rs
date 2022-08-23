@@ -11,6 +11,59 @@ pub struct Texture {
 }
 
 impl Texture {
+    //for when we create the depth stage of the render_pipeline and for creating the depth texture itself
+    pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn create_depth_texture(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        label: &str,
+    ) -> Self {
+        //needs to be the same size as the screen or it won't render correctly
+        let size: wgpu::Extent3d = wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        };
+
+        let texture: wgpu::Texture = device.create_texture(
+            &(wgpu::TextureDescriptor {
+                label: Some(label),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                //mark as a depth texture
+                format: Self::DEPTH_FORMAT,
+                //RENDER_ATTACHMENT - we are rendering this texture so it needs this tag
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+            }),
+        );
+
+        let view: wgpu::TextureView = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        //a sampler isn't strictly neccessary, but our Texture struct needs it and its needed if we ever want to sample it
+        let sampler: wgpu::Sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            //when we want to render our depth texture, we need LessEqual - this is because of how GLSL works
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            lod_min_clamp: -100.0,
+            lod_max_clamp: 100.0,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+        }
+    }
+
     //loads an image (from a set of bytes) into a Texture
     pub fn from_bytes(
         //since this isn't part of our main lib.rs program, we need to add references to the device and queue.
