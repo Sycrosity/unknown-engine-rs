@@ -339,6 +339,8 @@ struct State {
     diffuse_bind_group: wgpu::BindGroup,
     //aa texture generated from texture.rs
     diffuse_texture: texture::Texture,
+    //how depth is percieved by the renderer
+    depth_texture: texture::Texture,
     //a view into our scene that can move around (using rasterization) and give the perception of depth
     camera: Camera,
     //the camera matrix data for use in the buffer
@@ -473,6 +475,10 @@ impl State {
                     },
                 ],
             });
+
+        //how depth is percieved by the renderer
+        let depth_texture: texture::Texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let camera: Camera = Camera {
             // position the camera one unit up and 2 units back - the +z coordinate is out of the screen (coord ranges are 1.0 to -1.0)
@@ -629,8 +635,16 @@ impl State {
                     //requires Features::CONSERVATIVE_RASTERIZATION
                     conservative: false,
                 },
-                //we aren't using a depth or stensil buffer yet so this doesn't apply
-                depth_stencil: None,
+                //how depth is rendered (so elements are properly on top of one another)
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: texture::Texture::DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    //pixels will be drawn from front to back
+                    depth_compare: wgpu::CompareFunction::Less,
+                    //will be used later, so for now is just default
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 //[TODO] learn what multisampling is and add comments for it
                 multisample: wgpu::MultisampleState {
                     //determines how many samples should be active
@@ -675,6 +689,7 @@ impl State {
             num_indices,
             diffuse_bind_group,
             diffuse_texture,
+            depth_texture,
             camera,
             camera_uniform,
             camera_buffer,
@@ -693,6 +708,8 @@ impl State {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
+        self.depth_texture =
+            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -753,8 +770,16 @@ impl State {
                             store: true,
                         },
                     })],
-                    //will be used later - for now is just None.
-                    depth_stencil_attachment: None,
+                    //actually uses the depth texture
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_texture.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: true,
+                        }),
+                        //only using depth, no stensil yet
+                        stencil_ops: None,
+                    }),
                 });
 
             //set the rendering pipeline to the only one we have so far
