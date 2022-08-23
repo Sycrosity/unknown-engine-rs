@@ -477,11 +477,8 @@ impl State {
             });
 
         //how depth is percieved by the renderer
-        let depth_texture: texture::Texture = texture::Texture::create_depth_texture(&device, &config, "depth_texture");
-
-        
-
-
+        let depth_texture: texture::Texture =
+            texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
         let camera: Camera = Camera {
             // position the camera one unit up and 2 units back - the +z coordinate is out of the screen (coord ranges are 1.0 to -1.0)
@@ -711,7 +708,8 @@ impl State {
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
         }
-        self.depth_texture = texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.depth_texture =
+            texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -772,7 +770,7 @@ impl State {
                             store: true,
                         },
                     })],
-                    //actually uses the depth texture 
+                    //actually uses the depth texture
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &self.depth_texture.view,
                         depth_ops: Some(wgpu::Operations {
