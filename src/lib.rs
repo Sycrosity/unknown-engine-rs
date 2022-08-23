@@ -3,6 +3,8 @@
 
 mod texture;
 
+use std::time::{Duration, Instant, SystemTime};
+
 use wgpu::{include_wgsl, util::DeviceExt};
 
 use winit::{
@@ -11,7 +13,9 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use cgmath::prelude::*;
+use cgmath::{prelude::*, Vector3};
+
+use wgpu_glyph::{ab_glyph, GlyphBrushBuilder, Section, Text};
 
 //wasm specific dependencies
 #[cfg(target_arch = "wasm32")]
@@ -337,7 +341,7 @@ struct State {
     num_indices: u32,
     //describes how a set of textures can be accessed by the shader
     diffuse_bind_group: wgpu::BindGroup,
-    //aa texture generated from texture.rs
+    //a texture generated from texture.rs
     diffuse_texture: texture::Texture,
     //a view into our scene that can move around (using rasterization) and give the perception of depth
     camera: Camera,
@@ -353,6 +357,12 @@ struct State {
     instances: Vec<Instance>,
     //to store the model and matrix data associated with our instances
     instance_buffer: wgpu::Buffer,
+    //for drawing text to the screen
+    glyph_brush: wgpu_glyph::GlyphBrush<()>,
+
+    staging_belt: wgpu::util::StagingBelt,
+    //the framerate of the program
+    fps: u64,
 }
 
 impl State {
@@ -373,7 +383,7 @@ impl State {
         let adapter: wgpu::Adapter = instance
             //should work for most devices,
             .request_adapter(&wgpu::RequestAdapterOptions {
-                //can be LowPower or HighPower - LowPower will try and use an adapter that favours battery life, HighPower will target a more power consuming but higher performance gpu
+                //can be LowPower or HighPerformance - LowPower will try and use an adapter that favours battery life, HighPerformance will target a more power consuming but higher performance gpu
                 //[TODO] allow the user to choose a performance mode
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
@@ -416,7 +426,7 @@ impl State {
             height: size.height,
             //essentially Vsync, and will cap the display rate to the display's frame rate - there are other options to choose from https://docs.rs/wgpu/latest/wgpu/enum.PresentMode.html
             //[TODO] allow the user to choose what mode they want (probably between AutoNoVsync and AutoVsync)
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
         };
         surface.configure(&device, &config);
 
@@ -559,6 +569,7 @@ impl State {
                 })
             })
             .collect::<Vec<_>>();
+     
 
         //the instances created turned into InstanceRaw's so they can be interpreted by the shader
         let instance_data: Vec<InstanceRaw> =
@@ -662,6 +673,19 @@ impl State {
 
         let num_indices: u32 = INDICES.len() as u32;
 
+        //for writing text
+        // Prepare glyph_brush
+        let inconsolata: ab_glyph::FontArc =
+            ab_glyph::FontArc::try_from_slice(include_bytes!("assets/Inconsolata-Regular.ttf"))
+                .expect("unknown font");
+
+        let glyph_brush: wgpu_glyph::GlyphBrush<()> = GlyphBrushBuilder::using_font(inconsolata)
+            .build(&device, surface.get_supported_formats(&adapter)[0]);
+
+        let staging_belt: wgpu::util::StagingBelt = wgpu::util::StagingBelt::new(1024);
+
+        let fps: u64 = 0;
+
         //return all of our created data in a State struct
         Self {
             surface,
@@ -682,6 +706,9 @@ impl State {
             camera_controller,
             instances,
             instance_buffer,
+            glyph_brush,
+            staging_belt,
+            fps,
         }
     }
 
@@ -773,9 +800,36 @@ impl State {
             render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
         }
 
+        self.glyph_brush.queue(Section {
+            screen_position: (15.0, 15.0),
+            bounds: (self.size.width as f32, self.size.height as f32),
+            text: vec![Text::new(&format!("fps: {}", self.fps))
+                .with_color([0.0, 0.0, 0.0, 1.0])
+                .with_scale(20.0)],
+            ..Section::default()
+        });
+
+        // Draw the text!
+        self.glyph_brush
+            .draw_queued(
+                &self.device,
+                &mut self.staging_belt,
+                &mut encoder,
+                &view,
+                self.size.width,
+                self.size.height,
+            )
+            .expect("Draw queued");
+
+        // Submit the work!
+        self.staging_belt.finish();
+
         //tells wgpu to finish the command buffer and submit it to the render queue
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+
+        // // Recall unused staging buffers
+        // self.staging_belt.recall();
 
         //if all of this completes, return an Ok enum
         Ok(())
@@ -822,6 +876,10 @@ pub async fn run() {
     //[TODO] add description
     let mut state: State = State::new(&window).await;
 
+    let mut then = SystemTime::now();
+    let mut now = SystemTime::now();
+    let mut frames = 0;
+
     //code specific to wasm as it requires extra setup to get working
     #[cfg(target_arch = "wasm32")]
     {
@@ -846,62 +904,91 @@ pub async fn run() {
     }
 
     //starts the event loop to handle device, program and user events
-    event_loop.run(move |event, _, control_flow| match event {
-        //if something changes related to the window
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => {
-            if !state.input(event) {
-                //see what we will do with each different type of window related event
-                match event {
-                    //if the system has requested the window to close, or there is a keyboard input
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        //if escape is pressed, the window will close
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
-                    //if the window has been resized, resize the surface
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+        match event {
+            //if something changes related to the window
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == window.id() => {
+                if !state.input(event) {
+                    //see what we will do with each different type of window related event
+                    match event {
+                        //if the system has requested the window to close, or there is a keyboard input
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            //if escape is pressed, the window will close
+                            input:
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => *control_flow = ControlFlow::Exit,
+                        //if the window has been resized, resize the surface
+                        WindowEvent::Resized(physical_size) => {
+                            state.resize(*physical_size);
+                        }
+                        //if the scale factor has been changed, resize the surface
+                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                            state.resize(**new_inner_size);
+                        }
+                        //everything else does nothing for now
+                        _ => {}
                     }
-                    //if the scale factor has been changed, resize the surface
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
-                    }
-                    //everything else does nothing for now
-                    _ => {}
                 }
             }
-        }
-        //if a redraw of the screen is requested
-        Event::RedrawRequested(window_id) if window_id == window.id() => {
-            //update internal state
-            state.update();
-            //render these changes to the screen
-            match state.render() {
-                Ok(_) => {}
-                //reconfigure the surface if lost (if our swap chain (kinda the frame buffer) has been lost)
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                //the system is out of memory, so we should probably quit the program
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                //all other errors (Outdated, Timeout) should be resolved by the next frame and should just be printed to the error log
-                Err(e) => eprintln!("{:?}", e),
+            //if a redraw of the screen is requested
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
+                //update internal state
+                state.update();
+                //render these changes to the screen
+                match state.render() {
+                    Ok(_) => {}
+                    //reconfigure the surface if lost (if our swap chain (kinda the frame buffer) has been lost)
+                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                    //the system is out of memory, so we should probably quit the program
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    //all other errors (Outdated, Timeout) should be resolved by the next frame and should just be printed to the error log
+                    Err(e) => eprintln!("{:?}", e),
+                }
+
+                // let frame_time: u64 = timer.elapsed().as_nanos() as u64;
+
+                // if frame_time != 0 {
+                //     state.fps = 1_000_000_000 / frame_time;
+                //     // println!("{:#?} fps", fps);
+                // }
+
+                // timer = std::time::Instant::now();
+
+                frames += 1;
+                if now.duration_since(then).unwrap().as_millis() > 1000 {
+                    state.fps = frames;
+                    frames = 0;
+                    then = now;
+                    println!("{:?}",SystemTime::now());
+                }
+                now = SystemTime::now();
             }
+            //when the redraw is about to begin (we have no more events to proccess on this frame)
+            Event::MainEventsCleared => {
+                //redrawRequested will only trigger once, unless we manually request it
+                window.request_redraw();
+                // if target_framerate <= delta_time.elapsed() {
+                //     window.request_redraw();
+                //     delta_time = Instant::now();
+                // } else {
+                //     *control_flow = ControlFlow::WaitUntil(
+                //         Instant::now() + target_framerate - delta_time.elapsed(),
+                //     );
+                // }
+            }
+            //all other events do nothing for now
+            _ => {}
         }
-        //when the redraw is about to begin (we have no more events to proccess on this frame)
-        Event::MainEventsCleared => {
-            //redrawRequested will only trigger once, unless we manually request it
-            window.request_redraw();
-        }
-        //all other events do nothing for now
-        _ => {}
     });
 }
 
