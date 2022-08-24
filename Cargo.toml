@@ -29,6 +29,10 @@ bytemuck = { version = "1.12", features = [ "derive" ] }
 anyhow = "1.0"
 #for performing linear algebra
 cgmath = "0.18"
+#add object loading
+tobj = { version = "3.2.1", features = [
+    "async",
+]}
 
 #for interpreting and representing images
 [dependencies.image]
