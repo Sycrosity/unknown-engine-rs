@@ -1,6 +1,8 @@
 //for now, before everything is implimented, we will allow unused/dead code to exist without warnings
 #![allow(dead_code)]
 
+mod model;
+mod resources;
 mod texture;
 
 use wgpu::{include_wgsl, util::DeviceExt};
@@ -11,85 +13,13 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use cgmath::prelude::*;
-
 //wasm specific dependencies
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-//needs Pod and Zeroable to be able to cast it to a &[u8]
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-//stores relevant data for a singular vertex
-struct Vertex {
-    position: [f32; 3],
-    //texture coordinates
-    tex_coords: [f32; 2],
-}
+use cgmath::prelude::*;
 
-impl Vertex {
-    //the default description of what a vertex is - how it stores position, colour, ect
-    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            //defines the width of a vertex - here most likely 24 bytes
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            //how often to move to the next vertex - can be wgpu::VertexStepMode::Instance if we want to only change vertices when we start drawing an instance
-            step_mode: wgpu::VertexStepMode::Vertex,
-            //describe the individual parts of a vertex - generally the same structure as the shader (could use the vertex_attr_array![] macro but it requires some jankyness so will keep with this for now
-            attributes: &[
-                //position
-                wgpu::VertexAttribute {
-                    //the offset before the attribute starts - 0 for now, as we should have no data before our vertexes
-                    offset: 0,
-                    //tells the shader where to store this attribute at - shader_location: 0 is for the position and 1 is for the colour (at least currently)
-                    shader_location: 0,
-                    //the shape of the the attribute (Float32x3 is vec3<f32> in shader code, Float32x4 is vec4<f32> and is the max value we can store)
-                    format: wgpu::VertexFormat::Float32x3,
-                },
-                //colour
-                wgpu::VertexAttribute {
-                    //the sum of the size_of the previous attributes' data
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    //the colour attribute of the shader
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-            ],
-        }
-    }
-}
-
-//the verticies of whatever shape we are trying to make (here a pentagon)
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.0868241, 0.49240386, 0.0],
-        tex_coords: [0.4131759, 0.00759614],
-    },
-    Vertex {
-        position: [-0.49513406, 0.06958647, 0.0],
-        tex_coords: [0.0048659444, 0.43041354],
-    },
-    Vertex {
-        position: [-0.21918549, -0.44939706, 0.0],
-        tex_coords: [0.28081453, 0.949397],
-    },
-    Vertex {
-        position: [0.35966998, -0.3473291, 0.0],
-        tex_coords: [0.85967, 0.84732914],
-    },
-    Vertex {
-        position: [0.44147372, 0.2347359, 0.0],
-        tex_coords: [0.9414737, 0.2652641],
-    },
-];
-
-#[rustfmt::skip]
-//the order of the vertices - removes the need to repeat vertices and waste memory
-const INDICES: &[u16] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+use model::Vertex;
 
 //allows us to draw the same object multiple times with different properties
 struct Instance {
@@ -109,15 +39,6 @@ impl Instance {
         }
     }
 }
-
-//how many instances of our pentagon are we going to display
-const NUM_INSTANCES_PER_ROW: u32 = 10;
-//how far away from each other the pentagons should be
-const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-    0.0,
-    NUM_INSTANCES_PER_ROW as f32 * 0.5,
-);
 
 //wgsl doesn't have a representation for quarterons, so we convert the instance into just a matrix
 #[repr(C)]
@@ -328,19 +249,11 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     //describes the actions our gpu will perform when acting on a set of data (like a set of verticies)
     render_pipeline: wgpu::RenderPipeline,
-    //buffers are used to store all the data we want to draw (so we don't have to expensively recomplie the shader on every update)
-    //to store all the individual vertices in our elements
-    vertex_buffer: wgpu::Buffer,
-    //to store all the indices to elements in VERTICES to create triangles
-    index_buffer: wgpu::Buffer,
-    //how many indices are in the INDICES constant
-    num_indices: u32,
+    obj_model: model::Model,
     //describes how a set of textures can be accessed by the shader
     diffuse_bind_group: wgpu::BindGroup,
     //aa texture generated from texture.rs
     diffuse_texture: texture::Texture,
-    //how depth is percieved by the renderer
-    depth_texture: texture::Texture,
     //a view into our scene that can move around (using rasterization) and give the perception of depth
     camera: Camera,
     //the camera matrix data for use in the buffer
@@ -355,6 +268,8 @@ struct State {
     instances: Vec<Instance>,
     //to store the model and matrix data associated with our instances
     instance_buffer: wgpu::Buffer,
+    //how depth is percieved by the renderer
+    depth_texture: texture::Texture,
 }
 
 impl State {
@@ -482,7 +397,7 @@ impl State {
 
         let camera: Camera = Camera {
             // position the camera one unit up and 2 units back - the +z coordinate is out of the screen (coord ranges are 1.0 to -1.0)
-            eye: (0.0, 1.0, 2.0).into(),
+            eye: (0.0, 3.0, 6.0).into(),
             //have it look at the origin
             target: (0.0, 0.0, 0.0).into(),
             //which way is "up" - here (0.0, 1.0, 0.0)
@@ -539,17 +454,21 @@ impl State {
             });
 
         //how the camera is controlled
-        let camera_controller: CameraController = CameraController::new(0.2);
+        let camera_controller: CameraController = CameraController::new(0.6);
 
+        //how far away each model should be from one another
+        const SPACE_BETWEEN: f32 = 3.0;
+        //how many instances of our model are we going to display
+        const NUM_INSTANCES_PER_ROW: u32 = 10;
         //define our instances (should be 100 pentagons in a 10x10 grid, each rotated based on an axis)
         let instances: Vec<Instance> = (0..NUM_INSTANCES_PER_ROW)
             .flat_map(|z| {
                 (0..NUM_INSTANCES_PER_ROW).map(move |x| {
                     let position: cgmath::Vector3<f32> = cgmath::Vector3 {
-                        x: x as f32,
+                        x: SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0),
                         y: 0.0,
-                        z: z as f32,
-                    } - INSTANCE_DISPLACEMENT;
+                        z: SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0),
+                    };
 
                     let rotation: cgmath::Quaternion<f32> = if position.is_zero() {
                         //this is needed so an object at (0, 0, 0) won't get scaled to zero as Quaternions can effect scale if they're not created correctly
@@ -601,7 +520,7 @@ impl State {
                     //specifies which shader function should be our entrypoint
                     entry_point: "vs_main",
                     //the types of vertices we want to pass to the vertex shader
-                    buffers: &[Vertex::desc(), InstanceRaw::desc()],
+                    buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
                 },
                 //technically optional, so has to be wrapped in a Some enum
                 fragment: Some(wgpu::FragmentState {
@@ -658,23 +577,11 @@ impl State {
                 multiview: None,
             });
 
-        //a buffer to store the vertex data we want to draw (so we don't have to expensively recomplie the shader on every update)
-        let vertex_buffer: wgpu::Buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                //cast to &[u8] as that is how gpu buffers typically expect buffer data
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-
-        let index_buffer: wgpu::Buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Index Buffer"),
-                contents: bytemuck::cast_slice(INDICES),
-                usage: wgpu::BufferUsages::INDEX,
-            });
-
-        let num_indices: u32 = INDICES.len() as u32;
+        //load our model from its .obj file
+        let obj_model: model::Model =
+            resources::load_obj_model("sword2.obj", &device, &queue, &texture_bind_group_layout)
+                .await
+                .unwrap();
 
         //return all of our created data in a State struct
         Self {
@@ -684,9 +591,7 @@ impl State {
             config,
             size,
             render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            num_indices,
+            obj_model,
             diffuse_bind_group,
             diffuse_texture,
             depth_texture,
@@ -729,6 +634,7 @@ impl State {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+
         //wait for the surface to produce a new texture that we will render to
         let output: wgpu::SurfaceTexture = self.surface.get_current_texture()?;
 
@@ -782,20 +688,15 @@ impl State {
                     }),
                 });
 
+            //tells wgpu what instances we have and how to draw them
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+
             //set the rendering pipeline to the only one we have so far
             render_pass.set_pipeline(&self.render_pipeline);
-            //tells wgu how to access textures
-            render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
-            //tells wgu how to use apply the camera matrix
-            render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
-            //tells wgpu what slice of the vertex buffer to use - here it's .. which means all of it
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            //
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            //tells wgpu what slice of the index buffer to use (all of it), and what format the indices are in
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            //tells wgpu to draw something using our indices and vertices
-            render_pass.draw_indexed(0..self.num_indices, 0, 0..self.instances.len() as _);
+
+            use model::DrawModel;
+            render_pass.draw_model_instanced(&self.obj_model, 0..self.instances.len() as u32, &self.camera_bind_group);
+
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
