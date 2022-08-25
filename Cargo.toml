@@ -29,13 +29,17 @@ bytemuck = { version = "1.12", features = [ "derive" ] }
 anyhow = "1.0"
 #for performing linear algebra
 cgmath = "0.18"
+#add object loading
+tobj = { version = "3.2.1", features = [
+    "async",
+]}
 
 #for interpreting and representing images
 [dependencies.image]
 version = "0.24"
 default-features = false
 #we only need to import png's and jpeg's (for now)
-features = ["png", "jpeg"]
+features = ["png", "jpeg", "tiff"]
 
 #dependencies specific to wasm
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -53,7 +57,11 @@ web-sys = { version = "0.3", features = [
     "Document",
     "Window",
     "Element",
+    "Location",
 ]}
+#for handling loading assets
+reqwest = { version = "0.11" }
+
 
 #fix macos window weirdness - not a good fix but it should work
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -62,3 +70,12 @@ cocoa = "0.24"
 #build for both rust and C/C++ - this is needed to be able to run it on wasm, for web support
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+# dependenices for building
+[build-dependencies]
+anyhow = "1.0"
+fs_extra = "1.2"
+glob = "0.3"
+
+[profile.dev]
+opt-level = 1
