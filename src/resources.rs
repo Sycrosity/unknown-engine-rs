@@ -135,10 +135,10 @@ pub async fn load_obj_model(
     let meshes: Vec<model::Mesh> = models
         .into_iter()
         .map(|mat| {
-            println!("{}", mat.mesh.texcoords.len()/2);
-            println!("{}", mat.mesh.positions.len()/ 3);
+            println!("{}", mat.mesh.texcoords.len() / 2);
+            println!("{}", mat.mesh.positions.len() / 3);
 
-            //divide the mesh positions from the .obj file into groups of 3 f32 for the ModelVertex struct (as they are flattened and must be re-grouped into their 3d space positions)            
+            //divide the mesh positions from the .obj file into groups of 3 f32 for the ModelVertex struct (as they are flattened and must be re-grouped into their 3d space positions)
             let vertices: Vec<model::ModelVertex> = (0..mat.mesh.positions.len() / 3)
                 .map(|i| model::ModelVertex {
                     position: [

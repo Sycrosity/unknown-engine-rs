@@ -101,11 +101,7 @@ pub trait DrawModel<'a> {
         instances: std::ops::Range<u32>,
         camera_bind_group: &'a wgpu::BindGroup,
     );
-    fn draw_model(
-        &mut self,
-        model: &'a Model,
-        camera_bind_group: &'a wgpu::BindGroup,
-    );
+    fn draw_model(&mut self, model: &'a Model, camera_bind_group: &'a wgpu::BindGroup);
     fn draw_model_instanced(
         &mut self,
         model: &'a Model,
@@ -145,11 +141,7 @@ where
         //tells wgpu to draw something using our indices and vertices
         self.draw_indexed(0..mesh.num_elements, 0, instances);
     }
-    fn draw_model(
-        &mut self,
-        model: &'b Model,
-        camera_bind_group: &'a wgpu::BindGroup,
-    ) {
+    fn draw_model(&mut self, model: &'b Model, camera_bind_group: &'a wgpu::BindGroup) {
         self.draw_model_instanced(model, 0..1, camera_bind_group);
     }
 

@@ -634,7 +634,6 @@ impl State {
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-
         //wait for the surface to produce a new texture that we will render to
         let output: wgpu::SurfaceTexture = self.surface.get_current_texture()?;
 
@@ -695,8 +694,11 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
 
             use model::DrawModel;
-            render_pass.draw_model_instanced(&self.obj_model, 0..self.instances.len() as u32, &self.camera_bind_group);
-
+            render_pass.draw_model_instanced(
+                &self.obj_model,
+                0..self.instances.len() as u32,
+                &self.camera_bind_group,
+            );
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
