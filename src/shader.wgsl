@@ -22,14 +22,20 @@ var<uniform> camera: CameraUniform;
 
 //stores the input from wgpu for creating vertices
 struct VertexInput {
+    //where a vertex is in 3d
     @location(0) position: vec3<f32>,
+    //between where and where a texture
     @location(1) tex_coords: vec2<f32>,
+    //the normal mapping on top of our vertex
+    @location(2) normal: vec3<f32>,
 };
 
 //stores the output of our vertex shaders
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) world_position: vec3<f32>,
 };
 
 //
@@ -47,7 +53,7 @@ fn vs_main(
     instance: InstanceInput,
 ) -> VertexOutput {
     //re-assemble our matrix
-    let model_matrix = mat4x4<f32>(
+    let model_matrix: mat4x4<f32> = mat4x4<f32>(
         instance.model_matrix_0,
         instance.model_matrix_1,
         instance.model_matrix_2,
@@ -55,8 +61,14 @@ fn vs_main(
     );
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
+
+    out.world_normal = model.normal;
+    
     //when multiplying matrices, the vector goes on the right and matrices go on the left in order of importance
-    out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 1.0);
+    var world_position: vec4<f32> = model_matrix * vec4<f32>(model.position, 1.0);
+    out.world_position = world_position.xyz;
+    out.clip_position = camera.view_proj * world_position;
+
     return out;
 }
 
@@ -79,7 +91,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ambient_strength: f32 = 0.1;
     let ambient_color: vec3<f32> = light.color * ambient_strength;
 
-    let result: vec3<f32> = ambient_color * object_color.xyz;
+    let light_dir: vec3<f32> = normalize(light.position - in.world_position);
+    let diffuse_strength: f32 = max(dot(in.world_normal, light_dir), 0.0);
+    let diffuse_color: vec3<f32>  = light.color * diffuse_strength;
+
+    let result: vec3<f32>  = (ambient_color + diffuse_color) * object_color.xyz;
 
     return vec4<f32>(result, object_color.a);
 }
