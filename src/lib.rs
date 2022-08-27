@@ -21,30 +21,12 @@ use cgmath::prelude::*;
 
 use model::Vertex;
 
-//allows us to draw the same object multiple times with different properties
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    //really very complicated black box, but is a mathematical structure often used to represent rotation
-    //[TODO] read https://mathworld.wolfram.com/Quaternion.html to try and vaguely understand what this is doing
-    rotation: cgmath::Quaternion<f32>,
-}
-
-impl Instance {
-    //convert to a wgsl interpretable InstanceRaw
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(self.rotation))
-            .into(),
-        }
-    }
-}
-
 //wgsl doesn't have a representation for quarterons, so we convert the instance into just a matrix
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct InstanceRaw {
     model: [[f32; 4]; 4],
+    normal: [[f32; 3]; 3],
 }
 
 impl InstanceRaw {
@@ -54,6 +36,7 @@ impl InstanceRaw {
             array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
             //we need to switch from using a step mode of Vertex to Instance - this means that our shaders will only change to use the next instance when the shader starts processing a new instance
             step_mode: wgpu::VertexStepMode::Instance,
+            //[TODO] replace with the wgpu::vertex_attr_array![] macro
             attributes: &[
                 //a wgsl mat4 takes up 4 vertex slots as it is technically 4 vec4s - shince we need to define a slot for each vec4, we'll have to reassemble the mat4 in the shader
                 wgpu::VertexAttribute {
@@ -77,7 +60,42 @@ impl InstanceRaw {
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 16]>() as wgpu::BufferAddress,
+                    shader_location: 9,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 19]>() as wgpu::BufferAddress,
+                    shader_location: 10,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 22]>() as wgpu::BufferAddress,
+                    shader_location: 11,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
             ],
+        }
+    }
+}
+
+//allows us to draw the same object multiple times with different properties
+struct Instance {
+    position: cgmath::Vector3<f32>,
+    //really very complicated black box, but is a mathematical structure often used to represent rotation
+    //[TODO] read https://mathworld.wolfram.com/Quaternion.html to try and vaguely understand what this is doing
+    rotation: cgmath::Quaternion<f32>,
+}
+
+impl Instance {
+    //convert to a wgsl interpretable InstanceRaw
+    fn to_raw(&self) -> InstanceRaw {
+        let model: cgmath::Matrix4<f32> =
+            cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation);
+        InstanceRaw {
+            model: model.into(),
+            normal: cgmath::Matrix3::from(self.rotation).into(),
         }
     }
 }
@@ -128,6 +146,8 @@ impl Camera {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 //the camera matrix data for use in the buffer
 struct CameraUniform {
+    //needed to calculate specular lighting
+    view_position: [f32; 4],
     //we can't use cgmath with bytemuck directly so we'll have to convert the Matrix4 into a 4x4 f32 array
     view_proj: [[f32; 4]; 4],
 }
@@ -135,12 +155,14 @@ struct CameraUniform {
 impl CameraUniform {
     fn new() -> Self {
         Self {
+            view_position: [0.0; 4],
             view_proj: cgmath::Matrix4::identity().into(),
         }
     }
 
     //convert a Camera into a CameraUniform so it can be used in a uniform buffer
     fn update_view_proj(&mut self, camera: &Camera) {
+        self.view_position = camera.eye.to_homogeneous().into();
         self.view_proj = camera.build_view_projection_matrix().into();
     }
 }
@@ -526,8 +548,8 @@ impl State {
                 label: Some("camera_bind_group_layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    //the camera only needs to be visible to the vertex shader
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    //the camera  needs to be visible to the both shaders
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         //the size of data won't change, so it doesn't need to be dynamic
@@ -835,7 +857,6 @@ impl State {
                     0..self.instances.len() as u32,
                     &self.camera_bind_group,
                     &self.light_bind_group,
-
                 );
             }
         }
