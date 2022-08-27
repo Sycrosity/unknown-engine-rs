@@ -35,7 +35,7 @@ pub async fn load_string(file_name: &str) -> anyhow::Result<String> {
             let path = std::path::Path::new(env!("OUT_DIR"))
                 .join("res")
                 .join(&file_name);
-            println!("str: {:?}", path);
+            // println!("str: {:?}", path);
             let txt = std::fs::read_to_string(path)?;
         }
     }
@@ -57,7 +57,7 @@ pub async fn load_binary(file_name: &str) -> anyhow::Result<Vec<u8>> {
             let path = std::path::Path::new(env!("OUT_DIR"))
                 .join("res")
                 .join(&file_name);
-                println!("bin: {:?}", path);
+                // println!("bin: {:?}", path);
             let data = std::fs::read(path)?;
         }
     }
@@ -135,8 +135,8 @@ pub async fn load_obj_model(
     let meshes: Vec<model::Mesh> = models
         .into_iter()
         .map(|mat| {
-            println!("{}", mat.mesh.texcoords.len() / 2);
-            println!("{}", mat.mesh.positions.len() / 3);
+            // println!("{}", mat.mesh.texcoords.len() / 2);
+            // println!("{}", mat.mesh.positions.len() / 3);
 
             //divide the mesh positions from the .obj file into groups of 3 f32 for the ModelVertex struct (as they are flattened and must be re-grouped into their 3d space positions)
             let vertices: Vec<model::ModelVertex> = (0..mat.mesh.positions.len() / 3)
