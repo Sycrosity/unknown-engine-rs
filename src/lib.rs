@@ -5,7 +5,7 @@ mod model;
 mod resources;
 mod texture;
 
-use wgpu::{include_wgsl, util::DeviceExt};
+use wgpu::util::DeviceExt;
 
 use winit::{
     event::*,
@@ -235,6 +235,95 @@ impl CameraController {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct LightUniform {
+    position: [f32; 3],
+    //due to uniforms requiring 16 byte (4 float) spacing, we need to use a padding field here
+    _padding: u32,
+    color: [f32; 3],
+    //we need to use a padding field here too
+    _padding2: u32,
+}
+
+fn create_render_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    color_format: wgpu::TextureFormat,
+    depth_format: Option<wgpu::TextureFormat>,
+    vertex_layouts: &[wgpu::VertexBufferLayout],
+    shader: wgpu::ShaderModuleDescriptor,
+) -> wgpu::RenderPipeline {
+    //creates a shader from our shader file (in this case, shader.wgsl)
+    let shader: wgpu::ShaderModule = device.create_shader_module(shader);
+
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Render Pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            //specifies which shader function should be our entrypoint
+            entry_point: "vs_main",
+            //the types of vertices we want to pass to the vertex shader
+            buffers: vertex_layouts,
+        },
+        //technically optional, so has to be wrapped in a Some enum
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_main",
+            //for now, only need one for surface
+            targets: &[Some(wgpu::ColorTargetState {
+                format: color_format,
+                //for now, blending should just replace old pixel data with new pixel data
+                blend: Some(wgpu::BlendState {
+                    alpha: wgpu::BlendComponent::REPLACE,
+                    color: wgpu::BlendComponent::REPLACE,
+                }),
+                //for now, we write to all colours (rgba)
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        //how to interpret converting vertices to triangles
+        primitive: wgpu::PrimitiveState {
+            //every 3 vertices corrisponds to one triange - no overlapping triangles or lines ect
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            //doesn't apply
+            strip_index_format: None,
+            //front_face + cull_face - tells wgpu how to decide whether a triangle is facing forwards or not
+            //dictates a right-handed coordinates system (which we will use for now)
+            front_face: wgpu::FrontFace::Ccw,
+            //the back of a trianges face will not be included in the render
+            cull_mode: Some(wgpu::Face::Back),
+            //setting this to anything other than fill requires Features::NON_FILL_POLYGON_MODE
+            polygon_mode: wgpu::PolygonMode::Fill,
+            //requires Features::DEPTH_CLIP_CONTROL
+            unclipped_depth: false,
+            //requires Features::CONSERVATIVE_RASTERIZATION
+            conservative: false,
+        },
+        //how depth is rendered (so elements are properly on top of one another)
+        depth_stencil: depth_format.map(|format| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: true,
+            //pixels will be drawn from front to back
+            depth_compare: wgpu::CompareFunction::Less,
+            //will be used later, so for now is just default
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        //[TODO] learn what multisampling is and add comments for it
+        multisample: wgpu::MultisampleState {
+            //determines how many samples should be active
+            count: 1,
+            //specifies which samples should be active - in this case all of them ( represented by !0 )
+            mask: !0,
+            //for anti-aliasing - doesn't apply for now
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+    })
+}
+
 //the state of the everything related to the program - the window, device, buffers, textures, models, ect
 struct State {
     //the part of the window that we actually draw to
@@ -270,6 +359,14 @@ struct State {
     instance_buffer: wgpu::Buffer,
     //how depth is percieved by the renderer
     depth_texture: texture::Texture,
+    //the position and colour of light data
+    light_uniform: LightUniform,
+    //to store the
+    light_buffer: wgpu::Buffer,
+    //describes how our light should be accessed by the shader
+    light_bind_group: wgpu::BindGroup,
+    //describes the actions our gpu will perform to render our light into our scene
+    light_render_pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -497,85 +594,97 @@ impl State {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
 
-        //creates a shader from our shader file (in this case, shader.wgsl)
-        //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
-        let shader: wgpu::ShaderModule = device.create_shader_module(include_wgsl!("shader.wgsl"));
+        let light_uniform: LightUniform = LightUniform {
+            position: [2.0, 2.0, 2.0],
+            _padding: 0,
+            color: [1.0, 1.0, 1.0],
+            _padding2: 0,
+        };
+
+        let light_buffer: wgpu::Buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Light VB"),
+                contents: bytemuck::cast_slice(&[light_uniform]),
+                // we'll want to update our lights position, so we use COPY_DST
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+        let light_bind_group_layout: wgpu::BindGroupLayout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let light_bind_group: wgpu::BindGroup =
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &light_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: light_buffer.as_entire_binding(),
+                }],
+            });
+
+        let light_render_pipeline: wgpu::RenderPipeline = {
+            let layout: wgpu::PipelineLayout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Light Pipeline Layout"),
+                    bind_group_layouts: &[&camera_bind_group_layout, &light_bind_group_layout],
+                    push_constant_ranges: &[],
+                });
+            //creates a shader from our shader file
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Light Shader"),
+                //the include_wgsl!() macro makes it so we don't have to write really dumb boilerplate code to create the shader
+                source: wgpu::ShaderSource::Wgsl(include_str!("light.wgsl").into()),
+            };
+            create_render_pipeline(
+                &device,
+                &layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &[model::ModelVertex::desc()],
+                shader,
+            )
+        };
 
         //setup for our rendering pipeline
         let render_pipeline_layout: wgpu::PipelineLayout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 //the list of bind groups being used
-                bind_group_layouts: &[&texture_bind_group_layout, &camera_bind_group_layout],
+                bind_group_layouts: &[
+                    &texture_bind_group_layout,
+                    &camera_bind_group_layout,
+                    &light_bind_group_layout,
+                ],
                 push_constant_ranges: &[],
             });
 
         //describes the actions our gpu will perform when acting on a set of data
-        let render_pipeline: wgpu::RenderPipeline =
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Render Pipeline"),
-                layout: Some(&render_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    //specifies which shader function should be our entrypoint
-                    entry_point: "vs_main",
-                    //the types of vertices we want to pass to the vertex shader
-                    buffers: &[model::ModelVertex::desc(), InstanceRaw::desc()],
-                },
-                //technically optional, so has to be wrapped in a Some enum
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    //for now, only need one for surface
-                    targets: &[Some(wgpu::ColorTargetState {
-                        // 4.
-                        format: config.format,
-                        //for now, blending should just replace old pixel data with new pixel data
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        //for now, we write to all colours (rgba)
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                //how to interpret converting vertices to triangles
-                primitive: wgpu::PrimitiveState {
-                    //every 3 vertices corrisponds to one triange - no overlapping triangles or lines ect
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    //doesn't apply
-                    strip_index_format: None,
-                    //front_face + cull_face - tells wgpu how to decide whether a triangle is facing forwards or not
-                    //dictates a right-handed coordinates system (which we will use for now)
-                    front_face: wgpu::FrontFace::Ccw,
-                    //the back of a trianges face will not be included in the render
-                    cull_mode: Some(wgpu::Face::Back),
-                    //setting this to anything other than fill requires Features::NON_FILL_POLYGON_MODE
-                    polygon_mode: wgpu::PolygonMode::Fill,
-                    //requires Features::DEPTH_CLIP_CONTROL
-                    unclipped_depth: false,
-                    //requires Features::CONSERVATIVE_RASTERIZATION
-                    conservative: false,
-                },
-                //how depth is rendered (so elements are properly on top of one another)
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: texture::Texture::DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    //pixels will be drawn from front to back
-                    depth_compare: wgpu::CompareFunction::Less,
-                    //will be used later, so for now is just default
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                //[TODO] learn what multisampling is and add comments for it
-                multisample: wgpu::MultisampleState {
-                    //determines how many samples should be active
-                    count: 1,
-                    //specifies which samples should be active - in this case all of them ( represented by !0 )
-                    mask: !0,
-                    //for anti-aliasing - doesn't apply for now
-                    alpha_to_coverage_enabled: false,
-                },
-                //how many array layers render attachments can have - we aren't rendering to array layers, so for now this is 0
-                multiview: None,
-            });
+        let render_pipeline: wgpu::RenderPipeline = {
+            let shader = wgpu::ShaderModuleDescriptor {
+                label: Some("Normal Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            };
+            create_render_pipeline(
+                &device,
+                &render_pipeline_layout,
+                config.format,
+                Some(texture::Texture::DEPTH_FORMAT),
+                &[model::ModelVertex::desc(), InstanceRaw::desc()],
+                shader,
+            )
+        };
 
         //load our model from its .obj file
         let obj_model: model::Model =
@@ -602,6 +711,10 @@ impl State {
             camera_controller,
             instances,
             instance_buffer,
+            light_uniform,
+            light_buffer,
+            light_bind_group,
+            light_render_pipeline,
         }
     }
 
@@ -630,6 +743,19 @@ impl State {
             &self.camera_buffer,
             0,
             bytemuck::cast_slice(&[self.camera_uniform]),
+        );
+
+        //update light positon
+        let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
+        self.light_uniform.position =
+            //rotate around the origin one degree every frame
+            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
+                * old_position)
+                .into();
+        self.queue.write_buffer(
+            &self.light_buffer,
+            0,
+            bytemuck::cast_slice(&[self.light_uniform]),
         );
     }
 
@@ -690,15 +816,28 @@ impl State {
             //tells wgpu what instances we have and how to draw them
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
 
-            //set the rendering pipeline to the only one we have so far
+            {
+                use crate::model::DrawLight;
+                render_pass.set_pipeline(&self.light_render_pipeline);
+                render_pass.draw_light_model(
+                    &self.obj_model,
+                    &self.camera_bind_group,
+                    &self.light_bind_group,
+                );
+            }
+
             render_pass.set_pipeline(&self.render_pipeline);
 
-            use model::DrawModel;
-            render_pass.draw_model_instanced(
-                &self.obj_model,
-                0..self.instances.len() as u32,
-                &self.camera_bind_group,
-            );
+            {
+                use model::DrawModel;
+                render_pass.draw_model_instanced(
+                    &self.obj_model,
+                    0..self.instances.len() as u32,
+                    &self.camera_bind_group,
+                    &self.light_bind_group,
+
+                );
+            }
         }
 
         //tells wgpu to finish the command buffer and submit it to the render queue
