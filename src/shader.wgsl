@@ -106,9 +106,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let diffuse_color: vec3<f32>  = light.color * diffuse_strength;
 
     let view_dir: vec3<f32> = normalize(camera.view_pos.xyz - in.world_position);
-    let reflect_dir: vec3<f32> = reflect(-light_dir, in.world_normal);
+    let half_dir: vec3<f32> = normalize(view_dir + light_dir);
 
-    let specular_strength: f32 = pow(max(dot(view_dir, reflect_dir), 0.0), 32.0);
+let specular_strength = pow(max(dot(in.world_normal, half_dir), 0.0), 32.0);
     let specular_color: vec3<f32> = specular_strength * light.color;
 
 let result: vec3<f32> = (ambient_color + diffuse_color + specular_color) * object_color.xyz;
