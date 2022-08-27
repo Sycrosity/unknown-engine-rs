@@ -579,7 +579,7 @@ impl State {
 
         //load our model from its .obj file
         let obj_model: model::Model =
-            resources::load_obj_model("sword2.obj", &device, &queue, &texture_bind_group_layout)
+            resources::load_obj_model("cube.obj", &device, &queue, &texture_bind_group_layout)
                 .await
                 .unwrap();
 
