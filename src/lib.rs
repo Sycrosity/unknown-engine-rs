@@ -360,11 +360,8 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     //describes the actions our gpu will perform when acting on a set of data (like a set of verticies)
     render_pipeline: wgpu::RenderPipeline,
+    //our imported model
     obj_model: model::Model,
-    //describes how a set of textures can be accessed by the shader
-    diffuse_bind_group: wgpu::BindGroup,
-    //aa texture generated from texture.rs
-    diffuse_texture: texture::Texture,
     //a view into our scene that can move around (using rasterization) and give the perception of depth
     camera: Camera,
     //the camera matrix data for use in the buffer
@@ -456,12 +453,6 @@ impl State {
         };
         surface.configure(&device, &config);
 
-        //collect the bytes from happy-tree.png
-        let diffuse_bytes = include_bytes!("assets/happy-tree.png");
-        //create a texture using our texture.rs file and our image bytes
-        let diffuse_texture: texture::Texture =
-            texture::Texture::from_bytes(&device, &queue, diffuse_bytes, "happy-tree.png").unwrap();
-
         //[TODO] really very black box
         //used to create a bind group with the specified config, so that bind groups can be swapped in and out (as long as they share the same BindGroupLayout)
         let texture_bind_group_layout: wgpu::BindGroupLayout =
@@ -490,22 +481,22 @@ impl State {
                         //we only have one so this isn't needed
                         count: None,
                     },
-                ],
-            });
-
-        //describes how a set of textures can be accessed by a shader
-        let diffuse_bind_group: wgpu::BindGroup =
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("diffuse_bind_group"),
-                layout: &texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    // normal map
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
                     },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
                     },
                 ],
             });
@@ -723,8 +714,6 @@ impl State {
             size,
             render_pipeline,
             obj_model,
-            diffuse_bind_group,
-            diffuse_texture,
             depth_texture,
             camera,
             camera_uniform,

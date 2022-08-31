@@ -66,15 +66,16 @@ impl Texture {
 
     //loads an image (from a set of bytes) into a Texture
     pub fn from_bytes(
-        //since this isn't part of our main lib.rs program, we need to add references to the device and queue.
+        //since this isn't part of our main lib.rs program, we need to add references to the device and queue
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bytes: &[u8],
         label: &str,
+        is_normal_map: bool,
     ) -> Result<Self> {
         //load the bytes from an image into a image::DynamicImage
-        let img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label))
+        let img: image::DynamicImage = image::load_from_memory(bytes)?;
+        Self::from_image(device, queue, &img, Some(label), is_normal_map)
     }
 
     //takes an image (in format image::DynamicImage) and returns a Texture
@@ -84,6 +85,7 @@ impl Texture {
         img: &image::DynamicImage,
         //labels must be Option enums, as they can being be None or have data
         label: Option<&str>,
+        is_normal_map: bool,
     ) -> Result<Self> {
         //requires to_rgba8() instead of as_rgba8() as
         //convert the png into a Vector of Rgba bytes
@@ -108,8 +110,13 @@ impl Texture {
             sample_count: 1,
             //our texture is 2 dimentional
             dimension: wgpu::TextureDimension::D2,
-            //almost all textures and images are in sRGB colour format (and so is ours, so we dictate that here)
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: if is_normal_map {
+                //normal maps are in a different format, as it has more colour density
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                //almost all textures and images are in sRGB colour format
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            },
             //TEXTURE_BINDING tells wgpu that we want to use this texture in our shaders
             //COPY_DST means that we can copy data to this texture
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
