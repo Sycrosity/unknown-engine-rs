@@ -33,6 +33,8 @@ cgmath = "0.18"
 tobj = { version = "3.2.1", features = [
     "async",
 ]}
+#std::time::Instant panics on wasm, so we use this instead
+instant = "0.1"
 
 #for interpreting and representing images
 [dependencies.image]
