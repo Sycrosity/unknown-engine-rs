@@ -1,6 +1,7 @@
 //for now, before everything is implimented, we will allow unused/dead code to exist without warnings
 #![allow(dead_code)]
 
+mod camera;
 mod model;
 mod resources;
 mod texture;
@@ -12,14 +13,13 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
-
 //wasm specific dependencies
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-
 use cgmath::prelude::*;
 
 use model::Vertex;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
 
 //wgsl doesn't have a representation for quarterons, so we convert the instance into just a matrix
 #[repr(C)]
@@ -100,46 +100,6 @@ impl Instance {
     }
 }
 
-//a view into our scene that can move around (using rasterization) and give the perception of depth
-struct Camera {
-    //where our camera is looking at our scene from
-    eye: cgmath::Point3<f32>,
-    //what we are looking at (most likely the origin, [0,0,0])
-    target: cgmath::Point3<f32>,
-    //where up is - used for orientation
-    up: cgmath::Vector3<f32>,
-    //the aspect ration
-    aspect: f32,
-    //field of view
-    fovy: f32,
-    //what counts as too close to render
-    znear: f32,
-    //what counts as too far away to render
-    zfar: f32,
-}
-
-impl Camera {
-    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        //a matrix to move the world to where the camera is at
-        let view: cgmath::Matrix4<f32> =
-            cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        // a matrix that wraps the scene to give the illusion of depth
-        let proj: cgmath::Matrix4<f32> =
-            cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        // wgpu's coordinate system is based on DirectX and Metal's, whereas normalised device coordinates (present in OpenGL, cgmath and most game math crates) have x and y coords within the range of +1.0 and -1.0 - so we need a matrix to scale and translate cgmath's scene to wgpu's
-        #[rustfmt::skip]
-        pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 0.5, 0.0,
-            0.0, 0.0, 0.5, 1.0,
-        );
-
-        OPENGL_TO_WGPU_MATRIX * proj * view
-    }
-}
-
 //we need this for Rust to store our data correctly for the shaders
 #[repr(C)]
 //this is so we can store this in a buffer (aka have it turned into a &[u8])
@@ -161,99 +121,9 @@ impl CameraUniform {
     }
 
     //convert a Camera into a CameraUniform so it can be used in a uniform buffer
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_position = camera.eye.to_homogeneous().into();
-        self.view_proj = camera.build_view_projection_matrix().into();
-    }
-}
-
-//how the camera is controlled
-struct CameraController {
-    speed: f32,
-    is_forward_pressed: bool,
-    is_backward_pressed: bool,
-    is_left_pressed: bool,
-    is_right_pressed: bool,
-}
-
-impl CameraController {
-    fn new(speed: f32) -> Self {
-        Self {
-            speed,
-            is_forward_pressed: false,
-            is_backward_pressed: false,
-            is_left_pressed: false,
-            is_right_pressed: false,
-        }
-    }
-
-    //how to handle camera movement
-    fn process_events(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            //when something is pressed on the keyboard
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        //save it in the temporary keycode variable
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed: bool = *state == ElementState::Pressed;
-                match keycode {
-                    //[TODO] make this part of a config file or user options
-                    //keybinds for all directions of camera movement
-                    VirtualKeyCode::W | VirtualKeyCode::Up => {
-                        self.is_forward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::A | VirtualKeyCode::Left => {
-                        self.is_left_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::S | VirtualKeyCode::Down => {
-                        self.is_backward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::D | VirtualKeyCode::Right => {
-                        self.is_right_pressed = is_pressed;
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
-
-    //interpret the
-    fn update_camera(&self, camera: &mut Camera) {
-        let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
-        let forward_norm: cgmath::Vector3<f32> = forward.normalize();
-        let forward_mag: f32 = forward.magnitude();
-
-        //forward_mag > self.speed prevents glitching when camera gets too close to the center of the scene.
-        if self.is_forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
-        }
-        if self.is_backward_pressed {
-            camera.eye -= forward_norm * self.speed;
-        }
-        let right: cgmath::Vector3<f32> = forward_norm.cross(camera.up);
-
-        //redo radius calc in case the fowrard/backward is pressed.
-        let forward: cgmath::Vector3<f32> = camera.target - camera.eye;
-        let forward_mag: f32 = forward.magnitude();
-
-        if self.is_right_pressed {
-            //rescale the distance between the target and eye so that it doesn't change - the eye therefore still lies on the circle made by the target and eye.
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.is_left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
+    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
+        self.view_position = camera.position.to_homogeneous().into();
+        self.view_proj = (projection.calc_matrix() * camera.calc_matrix()).into();
     }
 }
 
@@ -362,16 +232,21 @@ struct State {
     render_pipeline: wgpu::RenderPipeline,
     //our imported model
     obj_model: model::Model,
-    //a view into our scene that can move around (using rasterization) and give the perception of depth
-    camera: Camera,
+    //a view into our scene that can move and look around
+    camera: camera::Camera,
+    //a set of settings relating to how the camera looks and percieves the scene
+    projection: camera::Projection,
+    //how the camera is controlled
+    camera_controller: camera::CameraController,
+    //whether the mouse is pressed or not (both scroll wheel and buttons)
+    mouse_pressed: bool,
     //the camera matrix data for use in the buffer
     camera_uniform: CameraUniform,
     //to store the matrix data associated with the camera
     camera_buffer: wgpu::Buffer,
     //describes how the camera can be accessed by the shader
     camera_bind_group: wgpu::BindGroup,
-    //how the camera is controlled
-    camera_controller: CameraController,
+
     //the list of our instances
     instances: Vec<Instance>,
     //to store the model and matrix data associated with our instances
@@ -449,7 +324,7 @@ impl State {
             height: size.height,
             //essentially Vsync, and will cap the display rate to the display's frame rate - there are other options to choose from https://docs.rs/wgpu/latest/wgpu/enum.PresentMode.html
             //[TODO] allow the user to choose what mode they want (probably between AutoNoVsync and AutoVsync)
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: wgpu::PresentMode::AutoVsync,
         };
         surface.configure(&device, &config);
 
@@ -505,23 +380,29 @@ impl State {
         let depth_texture: texture::Texture =
             texture::Texture::create_depth_texture(&device, &config, "depth_texture");
 
-        let camera: Camera = Camera {
+        let camera: camera::Camera = camera::Camera::new(
             // position the camera one unit up and 2 units back - the +z coordinate is out of the screen (coord ranges are 1.0 to -1.0)
-            eye: (0.0, 3.0, 6.0).into(),
-            //have it look at the origin
-            target: (0.0, 0.0, 0.0).into(),
-            //which way is "up" - here (0.0, 1.0, 0.0)
-            up: cgmath::Vector3::unit_y(),
-            aspect: config.width as f32 / config.height as f32,
-            //a basic, random value - allow user to change in settings
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
+            (0.0, 5.0, 10.0),
+            cgmath::Deg(-90.0),
+            cgmath::Deg(-20.0),
+        );
+
+        let projection: camera::Projection = camera::Projection::new(
+            config.width,
+            config.height,
+            //a basic, random value
+            //[TODO] allow user to change in settings
+            cgmath::Deg(45.0),
+            0.1,
+            100.0,
+        );
+
+        //how the camera is controlled
+        let camera_controller: camera::CameraController = camera::CameraController::new(4.0, 0.4);
 
         //convert our camera matrix into a CameraUniform
         let mut camera_uniform: CameraUniform = CameraUniform::new();
-        camera_uniform.update_view_proj(&camera);
+        camera_uniform.update_view_proj(&camera, &projection);
 
         //the uniform buffer for our camera - a &[u8] representation of the camera matrix
         let camera_buffer: wgpu::Buffer =
@@ -562,9 +443,6 @@ impl State {
                     resource: camera_buffer.as_entire_binding(),
                 }],
             });
-
-        //how the camera is controlled
-        let camera_controller: CameraController = CameraController::new(0.6);
 
         //how far away each model should be from one another
         const SPACE_BETWEEN: f32 = 3.0;
@@ -716,6 +594,8 @@ impl State {
             obj_model,
             depth_texture,
             camera,
+            projection,
+            mouse_pressed: false,
             camera_uniform,
             camera_buffer,
             camera_bind_group,
@@ -739,16 +619,41 @@ impl State {
         }
         self.depth_texture =
             texture::Texture::create_depth_texture(&self.device, &self.config, "depth_texture");
+        self.projection.resize(new_size.width, new_size.height);
     }
 
+    //an inputs should return true if something changed, and false if nothing changed
     fn input(&mut self, event: &WindowEvent) -> bool {
-        //an inputs should return true if something changed, and false if nothing changed
-        self.camera_controller.process_events(event)
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(key),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.camera_controller.process_keyboard(*key, *state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                true
+            }
+            _ => false,
+        }
     }
 
-    fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
-        self.camera_uniform.update_view_proj(&self.camera);
+    fn update(&mut self, dt: instant::Duration) {
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.camera_uniform
+            .update_view_proj(&self.camera, &self.projection);
         //write to the buffer with our updated data
         self.queue.write_buffer(
             &self.camera_buffer,
@@ -758,11 +663,12 @@ impl State {
 
         //update light positon
         let old_position: cgmath::Vector3<_> = self.light_uniform.position.into();
-        self.light_uniform.position =
-            //rotate around the origin one degree every frame
-            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
-                * old_position)
-                .into();
+        self.light_uniform.position = (cgmath::Quaternion::from_axis_angle(
+            (0.0, 1.0, 0.0).into(),
+            cgmath::Deg(60.0 * dt.as_secs_f32()),
+        ) * old_position)
+            .into();
+
         self.queue.write_buffer(
             &self.light_buffer,
             0,
@@ -868,8 +774,8 @@ pub async fn run() {
     cfg_if::cfg_if! {
         //if its on wasm, use the web logger instead of normal env_logger
         if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
             console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
+            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         } else {
             //wgpu doesn't use normal error logging, requires env_logger for its custom error messages
             env_logger::init();
@@ -896,8 +802,10 @@ pub async fn run() {
     //doens't seem to work?
     // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
 
-    //[TODO] add description
+    //the state of the everything related to the program - the window, device, buffers, textures, models, ect
     let mut state: State = State::new(&window).await;
+    //when the program last rendered
+    let mut last_render_time: instant::Instant = instant::Instant::now();
 
     //code specific to wasm as it requires extra setup to get working
     #[cfg(target_arch = "wasm32")]
@@ -923,62 +831,79 @@ pub async fn run() {
     }
 
     //starts the event loop to handle device, program and user events
-    event_loop.run(move |event, _, control_flow| match event {
-        //if something changes related to the window
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => {
-            if !state.input(event) {
-                //see what we will do with each different type of window related event
-                match event {
-                    //if the system has requested the window to close, or there is a keyboard input
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        //if escape is pressed, the window will close
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
-                    //if the window has been resized, resize the surface
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
+    event_loop.run(move |event, _, control_flow| {
+        //constantly re-renders and continues the scene even when not on the scene (useful for games)
+        *control_flow = ControlFlow::Poll;
+        match event {
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion{ delta },
+                .. // We're not using device_id currently
+            } => if state.mouse_pressed {
+                state.camera_controller.process_mouse(delta.0, delta.1)
+            },
+            //if something changes related to the window
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == window.id() => {
+                if !state.input(event) {
+                    //see what we will do with each different type of window related event
+                    match event {
+                        //if the system has requested the window to close, or there is a keyboard input
+                        //doesn't work with wasm
+                        #[cfg(not(target_arch="wasm32"))]
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            //if escape is pressed, the window will close
+                            input:
+                                KeyboardInput {
+                                    state: ElementState::Pressed,
+                                    virtual_keycode: Some(VirtualKeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => *control_flow = ControlFlow::Exit,
+                        //if the window has been resized, resize the surface
+                        WindowEvent::Resized(physical_size) => {
+                            state.resize(*physical_size);
+                        }
+                        //if the scale factor has been changed, resize the surface
+                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                            state.resize(**new_inner_size);
+                        }
+                        //everything else does nothing for now
+                        _ => {}
                     }
-                    //if the scale factor has been changed, resize the surface
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
-                    }
-                    //everything else does nothing for now
-                    _ => {}
                 }
             }
-        }
-        //if a redraw of the screen is requested
-        Event::RedrawRequested(window_id) if window_id == window.id() => {
-            //update internal state
-            state.update();
-            //render these changes to the screen
-            match state.render() {
-                Ok(_) => {}
-                //reconfigure the surface if lost (if our swap chain (kinda the frame buffer) has been lost)
-                Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
-                //the system is out of memory, so we should probably quit the program
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                //all other errors (Outdated, Timeout) should be resolved by the next frame and should just be printed to the error log
-                Err(e) => eprintln!("{:?}", e),
+            //if a redraw of the screen is requested
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
+                //update internal state
+                let now: instant::Instant = instant::Instant::now();
+                let dt: instant::Duration = now - last_render_time;
+                last_render_time = now;
+
+                state.update(dt);
+
+                //render these changes to the screen
+                match state.render() {
+                    Ok(_) => {}
+                    //reconfigure the surface if lost (if our swap chain (kinda the frame buffer) has been lost)
+                    Err(wgpu::SurfaceError::Lost) => state.resize(state.size),
+                    //the system is out of memory, so we should probably quit the program
+                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    //all other errors (Outdated, Timeout) should be resolved by the next frame and should just be printed to the error log
+                    Err(e) => eprintln!("{:?}", e),
+                }
             }
+            //when the redraw is about to begin (we have no more events to proccess on this frame)
+            Event::MainEventsCleared => {
+                //redrawRequested will only trigger once, unless we manually request it
+                window.request_redraw();
+            }
+            //all other events do nothing for now
+            _ => {}
         }
-        //when the redraw is about to begin (we have no more events to proccess on this frame)
-        Event::MainEventsCleared => {
-            //redrawRequested will only trigger once, unless we manually request it
-            window.request_redraw();
-        }
-        //all other events do nothing for now
-        _ => {}
     });
 }
 
