@@ -17,8 +17,11 @@ pub struct ModelVertex {
     pub position: [f32; 3],
     //texture coordinates - 2 f32's as textures are 2d only (for now)
     pub tex_coords: [f32; 2],
-    //for lighting (will be used later)
+    //for lighting
     pub normal: [f32; 3],
+    //to represent lighting via a coordinate system instead of a world system
+    pub tangent: [f32; 3],
+    pub bitangent: [f32; 3],
 }
 
 impl Vertex for ModelVertex {
@@ -56,6 +59,18 @@ impl Vertex for ModelVertex {
                     shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },
+                //tangent
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                //bitangent
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 11]>() as wgpu::BufferAddress,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
             ],
         }
     }
@@ -71,7 +86,48 @@ pub struct Model {
 pub struct Material {
     pub label: String,
     pub diffuse_texture: texture::Texture,
+    pub normal_texture: texture::Texture,
     pub bind_group: wgpu::BindGroup,
+}
+
+impl Material {
+    pub fn new(
+        device: &wgpu::Device,
+        label: &str,
+        diffuse_texture: texture::Texture,
+        normal_texture: texture::Texture, // NEW!
+        layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let bind_group: wgpu::BindGroup = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
+                },
+            ],
+        });
+
+        Self {
+            label: String::from(label),
+            diffuse_texture,
+            normal_texture,
+            bind_group,
+        }
+    }
 }
 
 //all the vertices and indices data of the model
