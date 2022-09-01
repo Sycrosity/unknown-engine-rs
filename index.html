@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unknown-engine</title>
+</head>
+
+<body>
+        <!-- <canvas id="wasm-canvas"></canvas> -->
+        <div id="wasm-div"></div>
+    <style>
+        body {
+            /* height: 100%; */
+            margin: 0;
+            background-color: #444;
+        }
+        div {
+            /* margin: 20px; */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        canvas {
+            background-color: black;
+        }
+        html {
+            min-height: 100%;
+            position: relative;
+        }
+    </style>
+
+    <script type="module">
+        import init from "./pkg/unknown_engine.js";
+        init().then(() => {
+            console.log("WASM Loaded");
+        });
+    </script>
+</body>
+
+
+</html>

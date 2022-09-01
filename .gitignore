@@ -1,4 +1,5 @@
 /target
+/dist
 
 # macos file system things
 .DS_Store

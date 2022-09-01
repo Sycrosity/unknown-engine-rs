@@ -21,6 +21,15 @@ use model::Vertex;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+#[allow(unused_macros)]
+#[cfg(target_arch = "wasm32")]
+//macro for logging on web
+macro_rules! log {
+    ( $( $t:tt )* ) => {
+        web_sys::console::log_1(&format!( $( $t )* ).into());
+    }
+}
+
 //wgsl doesn't have a representation for quarterons, so we convert the instance into just a matrix
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -776,6 +785,7 @@ pub async fn run() {
         if #[cfg(target_arch = "wasm32")] {
             console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
             std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+            let win = web_sys::window().unwrap();
         } else {
             //wgpu doesn't use normal error logging, requires env_logger for its custom error messages
             env_logger::init();
@@ -796,16 +806,14 @@ pub async fn run() {
     }
 
     //a window that can be manipulated to draw on the screen - in init it gets added to the event loop by the window builder
-    let window: Window = WindowBuilder::new().build(&event_loop).unwrap();
-    //setup QOL config for the window
-    window.set_title("unknown-engine");
-    //doens't seem to work?
-    // window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+    let window: Window = WindowBuilder::new()
+        .with_title("unknown-engine")
+        .build(&event_loop)
+        .unwrap();
 
-    //the state of the everything related to the program - the window, device, buffers, textures, models, ect
-    let mut state: State = State::new(&window).await;
-    //when the program last rendered
-    let mut last_render_time: instant::Instant = instant::Instant::now();
+    //fullscreening is not a thing on wasm
+    #[cfg(not(target_arch = "wasm32"))]
+    window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
 
     //code specific to wasm as it requires extra setup to get working
     #[cfg(target_arch = "wasm32")]
@@ -813,22 +821,33 @@ pub async fn run() {
         //winit prevents sizing with CSS, so we have to set the size manually when on web
         use winit::dpi::PhysicalSize;
 
-        //[TODO] decide what resolution to use by default
-        window.set_inner_size(PhysicalSize::new(450, 400));
-
-        //black box code to init a wasm window
+        //the winit window doesn't usually have canvas/web features on
         use winit::platform::web::WindowExtWebSys;
-        web_sys::window()
-            .and_then(|win| win.document())
+
+        //[TODO] update on screen resize
+        //set window size to size of screen window
+        //[TODO] add fallbacks for 0 size windows
+        window.set_inner_size(PhysicalSize::new(
+            win.inner_width().unwrap().into_serde::<u32>().unwrap(),
+            win.inner_height().unwrap().into_serde::<u32>().unwrap(),
+        ));
+
+        win.document()
             .and_then(|doc| {
                 //the element id corresponds to the element id in the html code for running the program
-                let dst = doc.get_element_by_id("wasm")?;
+                let dst = doc.get_element_by_id("wasm-div")?;
                 let canvas = web_sys::Element::from(window.canvas());
+
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
     }
+
+    //the state of the everything related to the program - the window, device, buffers, textures, models, ect
+    let mut state: State = State::new(&window).await;
+    //when the program last rendered
+    let mut last_render_time: instant::Instant = instant::Instant::now();
 
     //starts the event loop to handle device, program and user events
     event_loop.run(move |event, _, control_flow| {

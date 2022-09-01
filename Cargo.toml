@@ -51,15 +51,20 @@ console_log = "0.2"
 #specific wgpu version for wasm/webgl
 wgpu = { version = "0.13", features = ["webgl"]}
 #for generating the boilerplate code telling a browser how to use the renderer
-wasm-bindgen = "0.2"
+wasm-bindgen = { version = "0.2", features = [
+    "serde-serialize"
+]}
 #futures have to be run with the browser's executor, this adds support for that
 wasm-bindgen-futures = "0.4"
+#for testing wasm
+wasm-bindgen-test = "0.3"
 #bindings for web (javascript) features found in a normal web application
 web-sys = { version = "0.3", features = [
     "Document",
     "Window",
     "Element",
     "Location",
+    "console",
 ]}
 #for handling loading assets
 reqwest = { version = "0.11" }
