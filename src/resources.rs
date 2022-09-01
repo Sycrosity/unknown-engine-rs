@@ -15,7 +15,7 @@ fn format_url(file_name: &str) -> reqwest::Url {
     let location = window.location();
     let base = reqwest::Url::parse(&format!(
         "{}/{}/",
-        location.origin().unwrap(),
+        location.href().unwrap(),
         option_env!("RES_PATH").unwrap_or("res"),
     ))
     .unwrap();
