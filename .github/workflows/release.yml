@@ -66,20 +66,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Build project
-        run: cargo build --release --locked #--target x86_64-apple-darwin
+        run: |
+          cp ./utils/cargo-bundle ~/.cargo/bin/cargo-bundle
+          cargo bundle --release --locked
+        # run: cargo build --release --locked #--target x86_64-apple-darwin
       - name: Optimize and package binary
         run: |
-          cd target/release
-          strip unknown-engine
-          chmod +x unknown-engine
-          mkdir dmg
-          mv unknown-engine dmg/
-          hdiutil create -fs HFS+ -srcfolder dmg -volname unknown-engine unknown-engine.dmg
+          cd target/release/bundle
+          ln -s /Applications osx
+          hdiutil create /tmp/tmp.dmg -ov -volname "UnknownEngineInstall" -fs HFS+ -srcfolder osx
+          convert /tmp/tmp.dmg -format UDZO -o unknown-engine.dmg
       - name: Upload binary to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: target/release/unknown-engine.dmg
+          file: target/release/bundle/unknown-engine.dmg
           asset_name: unknown-engine-${{ github.event.client_payload.new_version }}-macosx-x86_64.dmg
           tag: ${{ github.event.client_payload.new_version }}
 
