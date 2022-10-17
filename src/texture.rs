@@ -155,8 +155,9 @@ impl Texture {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             //when looking at our image from up close or far away we can often have multiple pixels overlapping a fragment or vice-versa, so we either:
-            //(when the texture needs to be enlargened) attempt to blend fragments so they seem to flow together
-            mag_filter: wgpu::FilterMode::Linear,
+            //Linear: (when the texture needs to be enlargened) attempt to blend fragments so they seem to flow together
+            //Nearest gives a more pixelated game style look, which is my intention for this project
+            mag_filter: wgpu::FilterMode::Nearest,
             //(when the texture needs to be minified) use the colour of the nearest pixel
             min_filter: wgpu::FilterMode::Nearest,
             //[TODO] - how to deal with mipmaps
