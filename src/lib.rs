@@ -334,6 +334,7 @@ impl State {
             //essentially Vsync, and will cap the display rate to the display's frame rate - there are other options to choose from https://docs.rs/wgpu/latest/wgpu/enum.PresentMode.html
             //[TODO] allow the user to choose what mode they want (probably between AutoNoVsync and AutoVsync)
             present_mode: wgpu::PresentMode::AutoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&device, &config);
 
@@ -820,7 +821,7 @@ pub async fn run() {
     {
         //winit prevents sizing with CSS, so we have to set the size manually when on web
         use winit::dpi::PhysicalSize;
-
+        // wgpu::SurfaceConfiguration
         //the winit window doesn't usually have canvas/web features on
         use winit::platform::web::WindowExtWebSys;
 
