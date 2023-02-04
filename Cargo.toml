@@ -15,12 +15,12 @@ repository = "https://github.com/Sycrosity/unknown-engine-rs"
 #adds a macro making platform specific dependencies easier to manage
 cfg-if = "1"
 #for creating windows
-winit = "0.27"
+winit = "0.28"
 #for logging custom errors (from wgpu)
-env_logger = "0.9"
+env_logger = "0.10"
 log = "0.4"
 #the library we are using to render items to the screen
-wgpu = "0.14"
+wgpu = "0.15"
 #a more lightweight option to allow main() to await the future than tokio or async-std
 pollster = "0.2"
 #for casting Vec[f32]'s into Vec[u8]'s
@@ -49,7 +49,7 @@ console_error_panic_hook = "0.1"
 #implements logging for wasm on the web
 console_log = "0.2"
 #specific wgpu version for wasm/webgl
-wgpu = { version = "0.14", features = ["webgl"]}
+wgpu = { version = "0.15", features = ["webgl"]}
 #for generating the boilerplate code telling a browser how to use the renderer
 wasm-bindgen = { version = "0.2", features = [
     "serde-serialize"
